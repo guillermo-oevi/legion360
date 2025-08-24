@@ -1,0 +1,53 @@
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Flask / SQLAlchemy
+instance/
+app.db
+uploads/
+
+# Environment / Secrets
+.env
+.env.*
+
+# VS Code
+.vscode/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs and caches
+*.log
+*.sqlite3
+.cache/
+.pytest_cache/
+
+# Excel files
+*.xlsx
+*.xlsm
+*.xls
+rechazos_*.csv
+
+# Docker
+*.pid
+docker-compose.override.yml
+
+# Node / frontend (if used)
+node_modules/
+
+# Jupyter notebooks
+*.ipynb
+
+# Others
+*.bak
+*.swp
+*.tmp
