@@ -1,0 +1,57 @@
+
+{% extends 'base.html' %}
+{% block content %}
+<h3>Resumen por socio (macro-equivalente)</h3>
+<form class="row g-2 mb-3" method="get" action="{{ url_for('resumen_socio') }}">
+  <div class="col-auto">
+    <label class="form-label">Periodo (YM)</label>
+    <select name="ym" class="form-select">
+      {% for y in ym_list %}
+        <option value="{{ y }}" {% if y==ym %}selected{% endif %}>{{ y }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-auto align-self-end d-flex gap-2">
+    <button class="btn btn-primary">Aplicar</button>
+    <a class="btn btn-outline-primary" href="{{ url_for('resumen_socio_export', ym=ym, format='csv') }}">Exportar CSV</a>
+    <a class="btn btn-outline-success" href="{{ url_for('resumen_socio_export', ym=ym, format='xlsx') }}">Exportar Excel</a>
+  </div>
+</form>
+
+<div class="alert alert-secondary py-2">
+  <div><strong>Parámetros</strong></div>
+  <div>Empresa {{ (p_emp*100)|round(2) }}% · Vendedor {{ (p_ven*100)|round(2) }}% · Socio {{ (p_soc*100)|round(2) }}%</div>
+  <div class="small text-muted">Total_Márgenes = Margen_Vendedor + Margen_Socios + Margen_Otros_Socios (Margen_Empresa se muestra aparte).</div>
+</div>
+
+<div class="table-responsive">
+<table class="table table-sm table-striped">
+  <thead>
+    <tr>
+      <th>YM</th>
+      <th>nombre_socio</th>
+      <th class="text-end">Ganancia_neta</th>
+      <th class="text-end">Margen_Empresa</th>
+      <th class="text-end">Margen_Vendedor</th>
+      <th class="text-end">Margen_Socios</th>
+      <th class="text-end">Margen_Otros_Socios</th>
+      <th class="text-end">Total_Margenes</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in filas %}
+    <tr>
+      <td>{{ r.YM }}</td>
+      <td>{{ r.nombre_socio }}</td>
+      <td class="text-end">{{ r.Ganancia_neta | ars }}</td>
+      <td class="text-end">{{ r.Margen_Empresa | ars }}</td>
+      <td class="text-end">{{ r.Margen_Vendedor | ars }}</td>
+      <td class="text-end">{{ r.Margen_Socios | ars }}</td>
+      <td class="text-end">{{ r.Margen_Otros_Socios | ars }}</td>
+      <td class="text-end">{{ r.Total_Margenes | ars }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

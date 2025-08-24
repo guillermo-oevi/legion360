@@ -1,0 +1,13 @@
+{
+  "name": "Flask MVP",
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "context": ".."
+  },
+  "forwardPorts": [5000],
+  "postCreateCommand": "pip install -r requirements.txt",
+  "remoteEnv": {
+    "SECRET_KEY": "dev-key",
+    "PORT": "5000"
+  }
+}

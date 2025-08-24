@@ -1,0 +1,32 @@
+
+{% extends 'base.html' %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <h3>Compras</h3>
+  <a class="btn btn-secondary" href="{{ url_for('import_xls') }}">Importar Excel</a>
+</div>
+<div class="table-responsive">
+<table class="table table-sm table-hover">
+  <thead>
+    <tr>
+      <th>Fecha</th><th>Proveedor</th>
+      <th class="text-end">$ s/IVA</th><th class="text-end">IVA</th><th class="text-end">$ c/IVA</th>
+      <th>Estado</th><th>Detalle</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for c in compras %}
+    <tr>
+      <td>{{ c.fecha.strftime('%d/%m/%Y') }}</td>
+      <td>{{ c.proveedor }}</td>
+      <td class="text-end">{{ c.pesos_sin_iva | ars }}</td>
+      <td class="text-end">{{ ((c.iva_21 or 0)+(c.iva_105 or 0)) | ars }}</td>
+      <td class="text-end">{{ c.total_con_iva | ars }}</td>
+      <td><span class="badge {{ 'bg-success' if c.estado=='PAGADO' else 'bg-warning text-dark' }}">{{ c.estado }}</span></td>
+      <td>{{ c.descripcion or '' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

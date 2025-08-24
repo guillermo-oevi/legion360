@@ -1,0 +1,16 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Flask in Docker",
+      "type": "python",
+      "request": "launch",
+      "program": "app.py",
+      "justMyCode": true,
+      "env": {
+        "FLASK_ENV": "development",
+        "SECRET_KEY": "dev-key"
+      }
+    }
+  ]
+}

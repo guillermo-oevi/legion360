@@ -1,0 +1,48 @@
+
+{% extends 'base.html' %}
+{% block content %}
+<h3>Totales ARCA</h3>
+<form class="row g-2 mb-3" method="get" action="{{ url_for('totales_arca') }}">
+  <div class="col-auto">
+    <label class="form-label">Periodo (YM)</label>
+    <select name="ym" class="form-select">
+      <option value="">Todos</option>
+      {% for y in ym_list %}
+        <option value="{{ y }}" {% if y==ym %}selected{% endif %}>{{ y }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-auto align-self-end d-flex gap-2">
+    <button class="btn btn-primary">Aplicar</button>
+    <a class="btn btn-outline-primary" href="{{ url_for('totales_arca_export', ym=ym, format='csv') }}">Exportar CSV</a>
+    <a class="btn btn-outline-success" href="{{ url_for('totales_arca_export', ym=ym, format='xlsx') }}">Exportar Excel</a>
+  </div>
+</form>
+<div class="table-responsive">
+<table class="table table-sm table-striped">
+  <thead>
+    <tr>
+      <th>YM</th><th>tipo_operacion</th>
+      <th class="text-end">PESOS_SIN_IVA</th>
+      <th class="text-end">IVA_21</th>
+      <th class="text-end">IVA_105</th>
+      <th class="text-end">TOTAL_CON_IVA</th>
+      <th class="text-end">Saldo_Tecnico_IVA</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in filas %}
+    <tr>
+      <td>{{ r.YM }}</td>
+      <td>{{ r.tipo_operacion }}</td>
+      <td class="text-end">{{ r.PESOS_SIN_IVA | ars }}</td>
+      <td class="text-end">{{ r.IVA_21 | ars }}</td>
+      <td class="text-end">{{ r.IVA_105 | ars }}</td>
+      <td class="text-end">{{ r.TOTAL_CON_IVA | ars }}</td>
+      <td class="text-end">{{ r.Saldo_Tecnico_IVA | ars }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

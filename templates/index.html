@@ -1,0 +1,53 @@
+
+{% extends 'base.html' %}
+{% block content %}
+<h3>Resumen mensual</h3>
+<form class="row g-2 mb-3" method="get" action="/">
+  <div class="col-auto">
+    <label class="form-label">Año</label>
+    <input type="number" name="year" value="{{ year }}" class="form-control"/>
+  </div>
+  <div class="col-auto">
+    <label class="form-label">Mes</label>
+    <input type="number" name="month" value="{{ month }}" class="form-control"/>
+  </div>
+  <div class="col-auto align-self-end d-flex gap-2">
+    <button class="btn btn-primary">Aplicar</button>
+    <a class="btn btn-outline-primary" href="{{ url_for('dashboard_export', year=year, month=month, format='csv') }}">Exportar CSV</a>
+    <a class="btn btn-outline-success" href="{{ url_for('dashboard_export', year=year, month=month, format='xlsx') }}">Exportar Excel</a>
+  </div>
+</form>
+
+<div class="row g-3">
+  <div class="col-md-3">
+    <div class="card"><div class="card-body">
+      <h6>Ventas (total)</h6>
+      <div class="fs-5">{{ ventas_tot['monto_total'] | ars }}</div>
+      <small class="text-muted">IVA: {{ ventas_tot['iva'] | ars }}</small>
+    </div></div>
+  </div>
+  <div class="col-md-3">
+    <div class="card"><div class="card-body">
+      <h6>Compras (total)</h6>
+      <div class="fs-5">{{ compras_tot['monto_total'] | ars }}</div>
+      <small class="text-muted">IVA: {{ compras_tot['iva'] | ars }}</small><br>
+      <small class="text-muted">IVA deducible (emp.): {{ compras_tot['iva_deducible'] | ars }}</small>
+    </div></div>
+  </div>
+  <div class="col-md-3">
+    <div class="card"><div class="card-body">
+      <h6>Ganancia neta s/IVA</h6>
+      <div class="fs-5">{{ ganancia_neta | ars }}</div>
+      <small class="text-muted">Ventas s/IVA: {{ ventas_sin_iva | ars }}</small><br>
+      <small class="text-muted">Compras s/IVA: {{ compras_sin_iva | ars }}</small>
+    </div></div>
+  </div>
+  <div class="col-md-3">
+    <div class="card"><div class="card-body">
+      <h6>IVA a pagar</h6>
+      <div class="fs-5">{{ iva_a_pagar | ars }}</div>
+      <small class="text-muted">Venta - (Compra + 50% IVA pers.)</small>
+    </div></div>
+  </div>
+</div>
+{% endblock %}

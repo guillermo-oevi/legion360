@@ -1,0 +1,47 @@
+
+{% extends 'base.html' %}
+{% block content %}
+<div class="row">
+  <div class="col-md-6">
+    <h3>Socios</h3>
+    <div class="table-responsive">
+      <table class="table table-sm table-striped">
+        <thead><tr><th>Nombre</th><th>Tipo</th><th class="text-end">Margen %</th></tr></thead>
+        <tbody>
+          {% for s in socios %}
+          <tr>
+            <td>{{ s.nombre }}</td>
+            <td>{{ s.tipo }}</td>
+            <td class="text-end">{{ (s.margen_porcentaje*100)|round(2) if s.margen_porcentaje is not none else '-' }}%</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div class="text-muted small">Si algún margen faltaba, se completó automáticamente con: Empresa {{ (p_emp*100)|round(2) }}% · Socio {{ (p_soc*100)|round(2) }}%</div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <h3>Agregar socio</h3>
+    <form method="post" class="row g-3">
+      <div class="col-md-6">
+        <label class="form-label">Nombre</label>
+        <input name="nombre" class="form-control" required />
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Tipo</label>
+        <select name="tipo" class="form-select">
+          <option value="Socio">Socio</option>
+          <option value="Empresa">Empresa</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Margen % (opcional)</label>
+        <input name="margen_porcentaje" type="number" step="0.01" class="form-control" />
+      </div>
+      <div class="col-12">
+        <button class="btn btn-primary">Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

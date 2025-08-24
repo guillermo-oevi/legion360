@@ -1,0 +1,15 @@
+
+{% extends 'base.html' %}
+{% block content %}
+<h3>Importar desde Excel (.xlsx/.xlsm)</h3>
+<form method="post" enctype="multipart/form-data" class="row g-3">
+  <div class="col-md-6">
+    <label class="form-label">Archivo Excel</label>
+    <input type="file" name="file" accept=".xlsx,.xlsm,.xls" class="form-control" required />
+  </div>
+  <div class="col-12">
+    <button class="btn btn-primary">Importar</button>
+  </div>
+</form>
+<p class="mt-3 text-muted">Regla opcional: <code>nombre_socio_obligatorio</code> en hoja <code>Parametros</code> (1=SI / 0=NO). Si está activada, cualquier fila sin socio válido será rechazada y podrás descargar el reporte CSV de rechazos.</p>
+{% endblock %}

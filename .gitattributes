@@ -1,2 +1,23 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Forzar LF en archivos de código y templates
+*.py text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+
+# Archivos CSV y Excel (mantener como texto)
+*.csv text
+*.tsv text
+*.xlsx binary
+*.xlsm binary
+*.xls binary
+
+# Otros
+*.yml text eol=lf
+*.yaml text eol=lf
+*.sh text eol=lf
+*.bat text eol=crlf
