@@ -10,15 +10,15 @@
 <body>
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
   <div class="container-fluid">
-    <a class="navbar-brand" href="{{ url_for('index') }}">MVP Contable</a>
+    <a class="navbar-brand" href="{{ url_for('index') }}">LEGION 360</a>
     <div class="navbar-nav">
       <a class="nav-link" href="{{ url_for('compras_list') }}">Compras</a>
       <a class="nav-link" href="{{ url_for('ventas_list') }}">Ventas</a>
-      <a class="nav-link" href="{{ url_for('socios_view') }}">Socios</a>
       <a class="nav-link" href="{{ url_for('resumen_socio') }}">Resumen Socio</a>
       <a class="nav-link" href="{{ url_for('resumen_arca') }}">Resumen ARCA</a>
       <a class="nav-link" href="{{ url_for('totales_arca') }}">Totales ARCA</a>
       <a class="nav-link" href="{{ url_for('import_xls') }}">Importar Excel</a>
+      <a class="nav-link" href="{{ url_for('socios_view') }}">Socios</a>
     </div>
   </div>
 </nav>

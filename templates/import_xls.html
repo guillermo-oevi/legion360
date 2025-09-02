@@ -1,15 +1,65 @@
 
-{% extends 'base.html' %}
+{% extends "base.html" %}
+{% block title %}Importar datos{% endblock %}
 {% block content %}
-<h3>Importar desde Excel (.xlsx/.xlsm)</h3>
-<form method="post" enctype="multipart/form-data" class="row g-3">
-  <div class="col-md-6">
-    <label class="form-label">Archivo Excel</label>
-    <input type="file" name="file" accept=".xlsx,.xlsm,.xls" class="form-control" required />
+<div class="container py-4">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+        <div class="alert alert-{{ 'warning' if category == 'message' else category }} alert-dismissible fade show" role="alert">
+          {{ message|safe }}
+          <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <h2 class="mb-4">Importar datos</h2>
+
+  <!-- Excel -->
+  <div class="card mb-4">
+    <div class="card-body">
+      <h5 class="card-title">Subir archivo Excel (.xlsx/.xlsm)</h5>
+      <p class="text-muted mb-3">Hojas: <b>Parametros</b>, <b>Socios</b>, <b>FactCompras</b>, <b>FactVentas</b>.</p>
+      <form action="{{ url_for('import_xls') }}" method="post" enctype="multipart/form-data" class="row g-3">
+        <div class="col-md-8">
+          <input type="file" name="file" accept=".xlsx,.xlsm,.xls" class="form-control" required>
+        </div>
+        <div class="col-md-4">
+          <button class="btn btn-primary w-100" type="submit">Importar Excel</button>
+        </div>
+      </form>
+    </div>
   </div>
-  <div class="col-12">
-    <button class="btn btn-primary">Importar</button>
+
+  <!-- Google Sheets -->
+  <div class="card">
+    <div class="card-body">
+      <h5 class="card-title">Importar desde Google Sheets</h5>
+      <p class="text-muted mb-3">
+        Ingresá el <b>ID</b> (o pegá la URL completa) del Sheet compartido como <em>“Cualquiera con el enlace (lector)”</em>.
+      </p>
+      <form action="{{ url_for('import_gsheet') }}" method="post" class="row g-3 align-items-end">
+        <div class="col-md-6">
+          <label class="form-label">ID de Google Sheet</label>
+          <input type="text" name="sid" class="form-control" value="{{ default_gsheet_id }}" placeholder="1M7BL...">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">o URL completa (opcional)</label>
+          <input type="url" name="url" class="form-control" placeholder="https://docs.google.com/spreadsheets/d/.../edit?usp=sharing">
+        </div>
+        <div class="col-12">
+          <button class="btn btn-success" type="submit">Descargar e importar desde Sheet</button>
+        </div>
+      </form>
+
+      <hr class="my-4">
+      <form action="{{ url_for('import_gsheet') }}" method="post">
+        <input type="hidden" name="sid" value="{{ default_gsheet_id }}">
+        <button class="btn btn-outline-success" type="submit">Importar rápido (usar ID por defecto)</button>
+      </form>
+      <small class="text-muted d-block mt-2">ID por defecto: <code>{{ default_gsheet_id }}</code></small>
+    </div>
   </div>
-</form>
-<p class="mt-3 text-muted">Regla opcional: <code>nombre_socio_obligatorio</code> en hoja <code>Parametros</code> (1=SI / 0=NO). Si está activada, cualquier fila sin socio válido será rechazada y podrás descargar el reporte CSV de rechazos.</p>
+</div>
 {% endblock %}

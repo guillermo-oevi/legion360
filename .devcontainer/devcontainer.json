@@ -5,9 +5,10 @@
     "context": ".."
   },
   "forwardPorts": [5000],
-  "postCreateCommand": "pip install -r requirements.txt",
+  "postCreateCommand": "apt-get update && apt-get install -y git && pip install --upgrade pip && pip install -r requirements.txt",
   "remoteEnv": {
     "SECRET_KEY": "dev-key",
     "PORT": "5000"
   }
 }
+

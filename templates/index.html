@@ -1,4 +1,3 @@
-
 {% extends 'base.html' %}
 {% block content %}
 <h3>Resumen mensual</h3>
@@ -21,14 +20,14 @@
 <div class="row g-3">
   <div class="col-md-3">
     <div class="card"><div class="card-body">
-      <h6>Ventas (total)</h6>
+        <h6>Ventas (total)</h6>
       <div class="fs-5">{{ ventas_tot['monto_total'] | ars }}</div>
       <small class="text-muted">IVA: {{ ventas_tot['iva'] | ars }}</small>
     </div></div>
   </div>
   <div class="col-md-3">
     <div class="card"><div class="card-body">
-      <h6>Compras (total)</h6>
+        <h6>Compras (total)</h6>
       <div class="fs-5">{{ compras_tot['monto_total'] | ars }}</div>
       <small class="text-muted">IVA: {{ compras_tot['iva'] | ars }}</small><br>
       <small class="text-muted">IVA deducible (emp.): {{ compras_tot['iva_deducible'] | ars }}</small>
@@ -43,11 +42,49 @@
     </div></div>
   </div>
   <div class="col-md-3">
-    <div class="card"><div class="card-body">
-      <h6>IVA a pagar</h6>
-      <div class="fs-5">{{ iva_a_pagar | ars }}</div>
-      <small class="text-muted">Venta - (Compra + 50% IVA pers.)</small>
-    </div></div>
+    <div class="card">
+      <div class="card-body">
+        <h6>IVA a pagar</h6>
+        <div class="fs-5">{{ iva_a_pagar | ars }}</div>
+        <small class="text-muted">Venta - (Compra + 50% IVA pers.)</small>
+      </div>
+    </div>
   </div>
+</div>
+
+<div class="row g-3 mt-2">
+  <div class="col-md-6">
+    <div class="card border-warning">
+      <div class="card-body">
+        <h6>Alertas</h6>
+        <div style="margin-bottom: 10px;">Compras ADEUDADAS: <span class="badge bg-warning text-dark" style="font-size: 1rem;">{{ adeudado_compras }}</span></div>
+        <div style="margin-bottom: 10px;">Ventas ADEUDADAS: <span class="badge bg-warning text-dark" style="font-size: 1rem;">{{ adeudado_ventas }}</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h4 class="mt-4">Por socio</h4>
+<div class="table-responsive">
+<table class="table table-sm table-striped">
+  <thead>
+    <tr>
+      <th>Socio</th>
+      <th class="text-end">Ventas s/IVA</th>
+      <th class="text-end">Compras s/IVA</th>
+      
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in per_socio %}
+    <tr>
+      <td>{{ item.nombre }}</td>
+      <td class="text-end">{{ item.ventas_sin_iva | ars }}</td>
+      <td class="text-end">{{ item.compras_sin_iva | ars }}</td>
+      
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
 </div>
 {% endblock %}

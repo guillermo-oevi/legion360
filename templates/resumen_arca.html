@@ -1,52 +1,76 @@
 
 {% extends 'base.html' %}
 {% block content %}
-<h3>Resumen ARCA</h3>
-<form class="row g-2 mb-3" method="get" action="{{ url_for('resumen_arca') }}">
-  <div class="col-auto">
-    <label class="form-label">Periodo (YM)</label>
-    <select name="ym" class="form-select">
-      <option value="">Todos</option>
-      {% for y in ym_list %}
-        <option value="{{ y }}" {% if y==ym %}selected{% endif %}>{{ y }}</option>
-      {% endfor %}
-    </select>
+<div class="container py-4">
+  <h2>Resumen ARCA {{ ym }}</h2>
+
+  <form class="row g-2 mb-3" method="get">
+    <div class="col-auto">
+      <select name="ym" class="form-select">
+        <option value="">Todos</option>
+        {% for y in ym_list %}
+          <option value="{{ y }}" {% if y==ym %}selected{% endif %}>{{ y }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-auto">
+      <select class="form-select" name="tipo">
+        <option value="">Tipo (A/B/PERS/N)</option>
+        {% for t in ['A','B','PERS','N'] %}
+          <option value="{{ t }}" {% if t==tipo %}selected{% endif %}>{{ t }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-auto form-check pt-2">
+      <input class="form-check-input" type="checkbox" name="incluirN" value="1" id="incluirN" {% if incluirN %}checked{% endif %}>
+      <label class="form-check-label" for="incluirN">Incluir N</label>
+    </div>
+    <div class="col-auto">
+      <button class="btn btn-outline-primary" type="submit">Filtrar</button>
+    </div>
+    <div class="col-auto">
+      <a class="btn btn-success" href="{{ url_for('resumen_arca_export', ym=ym, tipo=tipo, incluirN=incluirN, format='xlsx') }}">Exportar XLSX</a>
+    </div>
+  </form>
+
+  <div class="table-responsive">
+    <table class="table table-sm table-striped align-middle">
+      <thead>
+        <tr>
+          <th>Operacion</th>
+          <th>Fecha</th>
+          <th>Tipo</th>
+          <th>Pto.Vta</th>
+          <th>Nro</th>
+          
+          <th>CUIT</th>
+          <th>Denominación</th>
+          <th style="text-align: right;">Sin IVA</th>
+          <th style="text-align: right;">IVA 21%</th>
+          <th style="text-align: right;">IVA 10,5%</th>
+          <th style="text-align: right;">Total c/iva</th>
+         
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in filas %}
+          <tr>
+            <td>{{ r.tipo_operacion }}</td>
+            <td>{{ r.fecha }}</td>
+            <td>{{ r.tipo_comprobante }}</td>
+            <td>{{ r.PUNTO_VENTA }}</td>
+            <td>{{ r.NRO_COMPROBANTE }}</td>
+            <td>{{ r.CUIT }}</td>
+            <td>{{ r['Denominación'] }}</td>
+            <td class="text-end">{{ r.PESOS_SIN_IVA | ars }}</td>
+            <td class="text-end">{{ r.IVA_21 | ars }}</td>
+            <td class="text-end">{{ r.IVA_105 | ars }}</td>
+            <td class="text-end">{{ r.TOTAL_CON_IVA | ars }}</td>
+            
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
-  <div class="col-auto align-self-end d-flex gap-2">
-    <button class="btn btn-primary">Aplicar</button>
-    <a class="btn btn-outline-primary" href="{{ url_for('resumen_arca_export', ym=ym, format='csv') }}">Exportar CSV</a>
-    <a class="btn btn-outline-success" href="{{ url_for('resumen_arca_export', ym=ym, format='xlsx') }}">Exportar Excel</a>
-  </div>
-</form>
-<div class="table-responsive">
-<table class="table table-sm table-striped">
-  <thead>
-    <tr>
-      <th>tipo_operacion</th><th>fecha</th><th>tipo_comprobante</th><th>NRO_FACTURA</th>
-      <th>CUIT</th><th>Denominación</th><th class="text-end">PESOS_SIN_IVA</th>
-      <th class="text-end">IVA_21</th><th class="text-end">IVA_105</th><th class="text-end">TOTAL_CON_IVA</th>
-      <th>estado</th><th>origen_destino</th><th>nombre_socio</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for r in filas %}
-    <tr>
-      <td>{{ r.tipo_operacion }}</td>
-      <td>{{ r.fecha }}</td>
-      <td>{{ r.tipo_comprobante }}</td>
-      <td>{{ r.NRO_FACTURA }}</td>
-      <td>{{ r.CUIT }}</td>
-      <td>{{ r.Denominación }}</td>
-      <td class="text-end">{{ r.PESOS_SIN_IVA | ars }}</td>
-      <td class="text-end">{{ r.IVA_21 | ars }}</td>
-      <td class="text-end">{{ r.IVA_105 | ars }}</td>
-      <td class="text-end">{{ r.TOTAL_CON_IVA | ars }}</td>
-      <td>{{ r.estado }}</td>
-      <td>{{ r.origen_destino }}</td>
-      <td>{{ r.nombre_socio }}</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
 </div>
 {% endblock %}
