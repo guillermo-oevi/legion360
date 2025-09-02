@@ -2,14 +2,34 @@
 {% block content %}
 <h3>Resumen mensual</h3>
 <form class="row g-2 mb-3" method="get" action="/">
-  <div class="col-auto">
-    <label class="form-label">Año</label>
-    <input type="number" name="year" value="{{ year }}" class="form-control"/>
-  </div>
-  <div class="col-auto">
-    <label class="form-label">Mes</label>
-    <input type="number" name="month" value="{{ month }}" class="form-control"/>
-  </div>
+  
+<div class="col-auto">
+  <label class="form-label">Año</label>
+  <input type="number" name="year" value="{{ year }}" class="form-control"/>
+</div>
+
+<div class="col-auto">
+  <label class="form-label">Mes</label>
+  <select name="month" class="form-control form-select">
+    <!-- "Todos" -> valor vacío -->
+    <option value="" {% if not month %}selected{% endif %}>Todos</option>
+
+    <!-- Meses 1..12 -->
+    <option value="1"  {% if (month|string) == '1'  %}selected{% endif %}>Enero</option>
+    <option value="2"  {% if (month|string) == '2'  %}selected{% endif %}>Febrero</option>
+    <option value="3"  {% if (month|string) == '3'  %}selected{% endif %}>Marzo</option>
+    <option value="4"  {% if (month|string) == '4'  %}selected{% endif %}>Abril</option>
+    <option value="5"  {% if (month|string) == '5'  %}selected{% endif %}>Mayo</option>
+    <option value="6"  {% if (month|string) == '6'  %}selected{% endif %}>Junio</option>
+    <option value="7"  {% if (month|string) == '7'  %}selected{% endif %}>Julio</option>
+    <option value="8"  {% if (month|string) == '8'  %}selected{% endif %}>Agosto</option>
+    <option value="9"  {% if (month|string) == '9'  %}selected{% endif %}>Septiembre</option>
+    <option value="10" {% if (month|string) == '10' %}selected{% endif %}>Octubre</option>
+    <option value="11" {% if (month|string) == '11' %}selected{% endif %}>Noviembre</option>
+    <option value="12" {% if (month|string) == '12' %}selected{% endif %}>Diciembre</option>
+  </select>
+</div>
+
   <div class="col-auto align-self-end d-flex gap-2">
     <button class="btn btn-primary">Aplicar</button>
     <a class="btn btn-outline-primary" href="{{ url_for('dashboard_export', year=year, month=month, format='csv') }}">Exportar CSV</a>

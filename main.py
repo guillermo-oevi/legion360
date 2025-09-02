@@ -311,8 +311,20 @@ def build_totales_arca(filtered=None):
 @app.route('/')
 def index():
     today = date.today()
-    year = int(request.args.get('year', today.year))
-    month = int(request.args.get('month', today.month))
+#    year = int(request.args.get('year', today.year))
+#    month = int(request.args.get('month', today.month))
+     year_str = request.args.get('year')
+try:
+     year = int(year_str) if year_str else today.year
+except ValueError:
+     year = today.year
+     month_str = request.args.get('month')
+try:
+     month = int(month_str) if month_str else today.month
+except ValueError:
+     month = today.month
+
+
     ym = f"{year:04d}-{month:02d}"
     v = db.session.query(func.coalesce(func.sum(Venta.pesos_sin_iva), 0.0), func.coalesce(func.sum(Venta.iva_21 + Venta.iva_105), 0.0)).filter(Venta.ym == ym).first()
     ventas_sin_iva, iva_venta = float(v[0]), float(v[1])
