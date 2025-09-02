@@ -1,6 +1,6 @@
 # Auto detect text files and perform LF normalization
-* text=auto
-
+# * text=auto
+* text eol=lf
 # Forzar LF en archivos de código y templates
 *.py text eol=lf
 *.html text eol=lf
