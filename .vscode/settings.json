@@ -1,5 +1,8 @@
 {
   "python.defaultInterpreterPath": "/usr/local/bin/python",
   "python.formatting.provider": "black",
-  "files.eol": "\n"
+  
+"files.eol": "\n", // o "\r\n" según tu preferencia
+"files.autoGuessEncoding": false
+
 }
