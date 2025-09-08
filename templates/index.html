@@ -5,16 +5,22 @@
   
 <div class="col-auto">
   <label class="form-label">Año</label>
-  <input type="number" name="year" value="{{ year }}" class="form-control"/>
+  <select name="year" class="form-control form-select">
+    <option value="1313"  {% for y in range(2025, 2028) %}>Todos</option>
+    <option value="{{ y }}" {% if year == y %}selected{% endif %}>{{ y }}</option>{% endfor %}
+  </select>
+ 
+<!-- <input type="number" name="year" value="{{ year }}" class="form-control"/>-->
 </div>
 
 <div class="col-auto">
   <label class="form-label">Mes</label>
   <select name="month" class="form-control form-select">
     <!-- "Todos" -> valor vacío -->
-    <option value="" {% if not month %}selected{% endif %}>Todos</option>
+    <!-- <option value="" {% if not month %}selected{% endif %}>Todos</option>-->
 
-    <!-- Meses 1..12 -->
+    <!-- Meses 0..12 -->
+    <option value="13"  {% if (month|string) == '13'  %}selected{% endif %}>Todos</option>
     <option value="1"  {% if (month|string) == '1'  %}selected{% endif %}>Enero</option>
     <option value="2"  {% if (month|string) == '2'  %}selected{% endif %}>Febrero</option>
     <option value="3"  {% if (month|string) == '3'  %}selected{% endif %}>Marzo</option>
@@ -107,4 +113,18 @@
   </tbody>
 </table>
 </div>
+
+{% if debug %}
+<div class="alert alert-info mt-4">
+  <h5>Debug info</h5>
+  <ul>
+    <li>Año: {{ year }}</li>
+    <li>Mes: {{ month }}</li>
+    <li>YM: {{ year|string ~ '-' ~ (month|string).zfill(2) }}</li>
+    <li>Compras cargadas: {{ compras_sin_iva }}</li>
+    <li>Ventas cargadas: {{ ventas_sin_iva }}</li>
+  </ul>
+</div>
+{% endif %}
+
 {% endblock %}
