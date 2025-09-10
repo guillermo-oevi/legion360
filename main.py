@@ -221,11 +221,26 @@ def build_resumen_socio(ym: str):
     p_ven = _read_param_any(["margen_Vendedor"], 0.20)
     p_soc = _read_param_any(["margen_Socio"], 0.09)
 
-    # Subconsultas de ventas/compras por socio
+    # Construir ventas_query / compras_query según el valor de ym
+    if ym == "all":
+        compras_query = db.session.query(Compra)
+        ventas_query = db.session.query(Venta)
+    elif ym == "none" or not ym:
+        compras_query = db.session.query(Compra).filter(Compra.id == -1)
+        ventas_query = db.session.query(Venta).filter(Venta.id == -1)
+    elif isinstance(ym, str) and ym.endswith("-*"):
+        year_prefix = ym[:-2]  # "2025-*"[0:-2] => "2025"
+        compras_query = db.session.query(Compra).filter(Compra.ym.like(f"{year_prefix}-%"))
+        ventas_query = db.session.query(Venta).filter(Venta.ym.like(f"{year_prefix}-%"))
+    else:
+        compras_query = db.session.query(Compra).filter(Compra.ym == ym)
+        ventas_query = db.session.query(Venta).filter(Venta.ym == ym)
+
+    # Subconsultas de ventas/compras por socio (usando las queries ya filtradas)
     ventas_sub = (
         ventas_query.with_entities(
             Venta.socio_id.label("socio_id"),
-            func.sum(Venta.pesos_sin_iva).label("ventas_sin_iva"),
+            func.coalesce(func.sum(Venta.pesos_sin_iva), 0.0).label("ventas_sin_iva"),
         )
         .group_by(Venta.socio_id)
         .subquery()
@@ -234,7 +249,7 @@ def build_resumen_socio(ym: str):
     compras_sub = (
         compras_query.with_entities(
             Compra.socio_id.label("socio_id"),
-            func.sum(Compra.pesos_sin_iva).label("compras_sin_iva"),
+            func.coalesce(func.sum(Compra.pesos_sin_iva), 0.0).label("compras_sin_iva"),
         )
         .group_by(Compra.socio_id)
         .subquery()
@@ -422,7 +437,9 @@ def index():
     today = date.today()
     year = int(request.args.get("year", today.year))
 
-    month = int(request.args.get("month", today.month))
+    # Si no se recibe 'month' en la query, por defecto usamos 13 -> "Todos"
+    month_arg = request.args.get("month", None)
+    month = int(month_arg) if month_arg is not None else 13
 
     if year == 1313 and month == 13:
         compras_query = db.session.query(Compra)
@@ -453,21 +470,24 @@ def index():
     ).first()
     compras_sin_iva, iva_compra_total = float(c[0]), float(c[1])
 
+    # usar compras_query para calcular IVA personal (respeta filtros "all"/"year-*")
     iva_personal_total = float(
-        db.session.query(func.coalesce(func.sum(Compra.iva_21 + Compra.iva_105), 0.0))
-        .filter((Compra.ym == ym) & (Compra.personal == True))
+        compras_query.with_entities(
+            func.coalesce(func.sum(Compra.iva_21 + Compra.iva_105), 0.0)
+        )
+        .filter(Compra.personal == True)
         .scalar()
         or 0.0
     )
+
     p_norm = get_param("iva_deducible_normal_pct", 1.0)
     p_pers_def = get_param("iva_deducible_personal_default_pct", 0.5)
-    rows = (
-        db.session.query(
-            Compra.personal, Compra.iva_deducible_pct, Compra.iva_21, Compra.iva_105
-        )
-        .filter(Compra.ym == ym)
-        .all()
-    )
+
+    # obtener filas desde compras_query para respetar filtros
+    rows = compras_query.with_entities(
+        Compra.personal, Compra.iva_deducible_pct, Compra.iva_21, Compra.iva_105
+    ).all()
+
     iva_compra_creditable = 0.0
     iva_personal_credito_empresa = 0.0
     for personal, pct, i21, i105 in rows:
@@ -477,6 +497,7 @@ def index():
         iva_compra_creditable += base * eff
         if personal:
             iva_personal_credito_empresa += base * eff
+
     margen_sin_iva = ventas_sin_iva - compras_sin_iva
     iva_a_pagar = iva_venta - iva_compra_creditable
     adeudado_compras = (
@@ -490,21 +511,34 @@ def index():
         .scalar()
     )
 
+    # Contar ADEUDADOS reutilizando compras_query/ventas_query (respetan filtros "all"/"year-*"/"none")
+    adeudado_compras = int(
+        compras_query.with_entities(func.count(Compra.id))
+        .filter(Compra.estado == "ADEUDADO")
+        .scalar()
+        or 0
+    )
+    adeudado_ventas = int(
+        ventas_query.with_entities(func.count(Venta.id))
+        .filter(Venta.estado == "ADEUDADO")
+        .scalar()
+        or 0
+    )
+
+    # Subconsultas por socio: usar ventas_query/compras_query SIN volver a filtrar por ym
     ventas_sub = (
-        db.session.query(
+        ventas_query.with_entities(
             Venta.socio_id.label("socio_id"),
-            func.sum(Venta.pesos_sin_iva).label("ventas_sin_iva"),
+            func.coalesce(func.sum(Venta.pesos_sin_iva), 0.0).label("ventas_sin_iva"),
         )
-        .filter(Venta.ym == ym)
         .group_by(Venta.socio_id)
         .subquery()
     )
     compras_sub = (
-        db.session.query(
+        compras_query.with_entities(
             Compra.socio_id.label("socio_id"),
-            func.sum(Compra.pesos_sin_iva).label("compras_sin_iva"),
+            func.coalesce(func.sum(Compra.pesos_sin_iva), 0.0).label("compras_sin_iva"),
         )
-        .filter(Compra.ym == ym)
         .group_by(Compra.socio_id)
         .subquery()
     )
@@ -550,6 +584,7 @@ def index():
         adeudado_ventas=adeudado_ventas,
         per_socio=per_socio,
         debug=True,
+        current_year=today.year,
     )
 
 
@@ -629,14 +664,14 @@ def dashboard_export():
             "Margen_sin_IVA": round(margen_sin_iva, 2),
             "IVA_a_Pagar": round(iva_a_pagar, 2),
             "Compras_ADEUDADO": int(
-                db.session.query(func.count(Compra.id))
-                .filter((Compra.ym == ym) & (Compra.estado == "ADEUDADO"))
+                compras_query.with_entities(func.count(Compra.id))
+                .filter(Compra.estado == "ADEUDADO")
                 .scalar()
                 or 0
             ),
             "Ventas_ADEUDADO": int(
-                db.session.query(func.count(Venta.id))
-                .filter((Venta.ym == ym) & (Venta.estado == "ADEUDADO"))
+                ventas_query.with_entities(func.count(Venta.id))
+                .filter(Venta.estado == "ADEUDADO")
                 .scalar()
                 or 0
             ),
@@ -808,19 +843,133 @@ def totales_arca_export():
 
 @app.route("/resumen-socio", endpoint="resumen_socio")
 def resumen_socio_view():
+    """
+    Resumen por socio con filtros year/month (month 1-12, 13 = Todos).
+    Compatibilidad:
+      - Si se pasan year/month se usan para construir ym (same semantics as index/ventas/compras).
+      - Si se pasa ym (legacy) y no se pasan year/month, se respeta el comportamiento anterior.
+    Pasa 'year' y 'month' al template para que los selects puedan mostrarlos.
+    """
+    # lista de YMs disponibles (legacy)
     yms = db.session.query(Compra.ym).distinct().union(db.session.query(Venta.ym)).all()
     ym_list = sorted({r[0] for r in yms if r[0]}, reverse=True)
-    ym = request.args.get("ym")
-    if not ym or ym not in ym_list:
-        ym = ym_list[0] if ym_list else None
+
+    # Leer filtros year/month (nuevos)
+    today = date.today()
+    year_arg = request.args.get("year")
+    month_arg = request.args.get("month")
+
+    if year_arg is not None or month_arg is not None:
+        # usar year/month con defaults (year -> hoy, month -> 13 = Todos)
+        year = int(year_arg) if year_arg is not None else today.year
+        month = int(month_arg) if month_arg is not None else 13
+
+        # construir ym según convención
+        if year == 1313 and month == 13:
+            ym = "all"
+        elif month == 13:
+            ym = f"{year}-*"
+        elif year == 1313:
+            ym = "none"
+        else:
+            ym = f"{year:04d}-{month:02d}"
+    else:
+        # comportamiento legacy: usar ?ym= o el primer ym disponible
+        ym = request.args.get("ym")
+        if not ym or ym not in ym_list:
+            ym = ym_list[0] if ym_list else None
+        # intentar derivar year/month para los selects si es posible
+        if ym and len(ym) >= 4 and ym[4:7] == "-*":
+            year = int(ym[:4]) if ym[:4].isdigit() else today.year
+            month = 13
+        elif ym and len(ym) >= 7 and ym[4] == "-":
+            year = int(ym[:4]) if ym[:4].isdigit() else today.year
+            try:
+                month = int(ym[5:7])
+            except Exception:
+                month = 13
+        elif ym == "all":
+            year = today.year
+            month = 13
+        else:
+            year = today.year
+            month = 13
+
     if not ym:
         flash(
             "No hay datos cargados aún. Importá el Excel/Sheet para ver el resumen.",
             "warning",
         )
         return render_template(
-            "resumen_socio.html", filas=[], ym="", ym_list=[], p_emp=0, p_ven=0, p_soc=0
+            "resumen_socio.html",
+            filas=[],
+            ym="",
+            ym_list=[],
+            p_emp=0,
+            p_ven=0,
+            p_soc=0,
+            year=year,
+            month=month,
         )
+
+    # Después de determinar `ym` (antes de llamar a build_resumen_socio):
+    if ym == "all":
+        ventas_query = db.session.query(Venta)
+        compras_query = db.session.query(Compra)
+    elif ym and ym.endswith("-*"):
+        y_prefix = ym[:4]
+        ventas_query = db.session.query(Venta).filter(Venta.ym.like(f"{y_prefix}-%"))
+        compras_query = db.session.query(Compra).filter(Compra.ym.like(f"{y_prefix}-%"))
+    elif ym == "none":
+        ventas_query = db.session.query(Venta).filter(Venta.id == -1)
+        compras_query = db.session.query(Compra).filter(Compra.id == -1)
+    else:
+        ventas_query = db.session.query(Venta).filter(Venta.ym == ym)
+        compras_query = db.session.query(Compra).filter(Compra.ym == ym)
+
+    total_ventas_con_iva = float(
+        ventas_query.with_entities(
+            func.coalesce(
+                func.sum(
+                    func.coalesce(
+                        func.nullif(Venta.total_con_iva, 0),
+                        (func.coalesce(Venta.pesos_sin_iva, 0.0)
+                         + func.coalesce(Venta.iva_21, 0.0)
+                         + func.coalesce(Venta.iva_105, 0.0))
+                    )
+                ),
+                0.0,
+            )
+        ).scalar()
+        or 0.0
+    )
+
+    # total compras: mismo tratamiento
+    total_compras_con_iva = float(
+        compras_query.with_entities(
+            func.coalesce(
+                func.sum(
+                    func.coalesce(
+                        func.nullif(Compra.total_con_iva, 0),
+                        (func.coalesce(Compra.pesos_sin_iva, 0.0)
+                         + func.coalesce(Compra.iva_21, 0.0)
+                         + func.coalesce(Compra.iva_105, 0.0))
+                    )
+                ),
+                0.0,
+            )
+        ).scalar()
+        or 0.0
+    )
+
+    saldo_con_iva = total_ventas_con_iva - total_compras_con_iva
+
+    # debug
+    try:
+        app.logger.debug("Resumen Socio - ym=%s ventas_total=%s compras_total=%s", ym, total_ventas_con_iva, total_compras_con_iva)
+    except Exception:
+        pass
+
     filas, p_emp, p_ven, p_soc = build_resumen_socio(ym)
     return render_template(
         "resumen_socio.html",
@@ -830,20 +979,51 @@ def resumen_socio_view():
         p_emp=p_emp,
         p_ven=p_ven,
         p_soc=p_soc,
+        year=year,
+        month=month,
+        current_year=today.year,
+        total_ventas_con_iva=total_ventas_con_iva,
+        total_compras_con_iva=total_compras_con_iva,
+        saldo_con_iva=saldo_con_iva,
     )
 
 
 @app.route("/resumen-socio/export", endpoint="resumen_socio_export")
 def resumen_socio_export():
+    """
+    Export versión que acepta year/month (preferible) o legacy ym param.
+    """
+    # construir lista de ym disponibles (legacy)
     yms = db.session.query(Compra.ym).distinct().union(db.session.query(Venta.ym)).all()
     ym_list = sorted({r[0] for r in yms if r[0]}, reverse=True)
-    ym = request.args.get("ym")
+
+    # priorizar year/month si presentes
+    today = date.today()
+    year_arg = request.args.get("year")
+    month_arg = request.args.get("month")
     fmt = request.args.get("format", "csv").lower()
-    if not ym or ym not in ym_list:
-        ym = ym_list[0] if ym_list else None
+
+    if year_arg is not None or month_arg is not None:
+        year = int(year_arg) if year_arg is not None else today.year
+        month = int(month_arg) if month_arg is not None else 13
+        if year == 1313 and month == 13:
+            ym = "all"
+        elif month == 13:
+            ym = f"{year}-*"
+        elif year == 1313:
+            ym = "none"
+        else:
+            ym = f"{year:04d}-{month:02d}"
+    else:
+        ym = request.args.get("ym")
+        if not ym or ym not in ym_list:
+            ym = ym_list[0] if ym_list else None
+
     if not ym:
         return Response("No hay datos para exportar", status=400)
+
     filas, p_emp, p_ven, p_soc = build_resumen_socio(ym)
+
     if fmt == "xlsx":
         if pd is None:
             return Response("Pandas no instalado", status=500)
@@ -883,9 +1063,7 @@ def resumen_socio_export():
         return Response(
             sio.getvalue(),
             mimetype="text/csv",
-            headers={
-                "Content-Disposition": f"attachment; filename=resumen_socio_{ym}.csv"
-            },
+            headers={"Content-Disposition": f"attachment; filename=resumen_socio_{ym}.csv"},
         )
 
 
@@ -1331,15 +1509,181 @@ def socios_view():
 
 @app.route("/compras")
 def compras_list():
-    compras = db.session.query(Compra).order_by(Compra.fecha.desc()).limit(300).all()
-    return render_template("compras_list.html", compras=compras)
+    """
+    Listado de compras con filtro year/month (month=1-12, 13=Todos)
+    y soporte de export (export='csv' | 'xlsx').
+    - Si no se pasa `month`, por defecto month=13 ("Todos").
+    - Pasa year y month al template para que los selects funcionen.
+    """
+    today = date.today()
+    year = int(request.args.get("year", today.year))
+
+    month_arg = request.args.get("month", None)
+    month = int(month_arg) if month_arg is not None else 13
+
+    # Construir compras_query según year/month (misma lógica que index/ventas_list)
+    if year == 1313 and month == 13:
+        compras_query = db.session.query(Compra)
+        ym = "all"
+    elif month == 13:
+        compras_query = db.session.query(Compra).filter(Compra.ym.like(f"{year}-%"))
+        ym = f"{year}-*"
+    elif year == 1313:
+        compras_query = db.session.query(Compra).filter(Compra.id == -1)
+        ym = "none"
+    else:
+        ym = f"{year:04d}-{month:02d}"
+        compras_query = db.session.query(Compra).filter(Compra.ym == ym)
+
+    export_fmt = (request.args.get("export") or "").lower()
+
+    if export_fmt:
+        # preparar filas para export (lista de dicts)
+        rows = []
+        compras_iter = compras_query.order_by(Compra.fecha.desc()).all()
+        socios_map = {sid: nom for sid, nom in db.session.query(Socio.id, Socio.nombre).all()}
+        for c in compras_iter:
+            rows.append(
+                {
+                    "fecha": c.fecha.strftime("%Y-%m-%d") if c.fecha else "",
+                    "proveedor": c.proveedor or "",
+                    "socio": socios_map.get(c.socio_id, ""),
+                    "pesos_sin_iva": round(float(c.pesos_sin_iva or 0.0), 2),
+                    "iva_21": round(float(c.iva_21 or 0.0), 2),
+                    "iva_105": round(float(c.iva_105 or 0.0), 2),
+                    "total_con_iva": round(float(c.total_con_iva or ((c.pesos_sin_iva or 0.0) + (c.iva_21 or 0.0) + (c.iva_105 or 0.0))), 2),
+                    "estado": c.estado or "",
+                    "descripcion": c.descripcion or "",
+                    "nro_factura": c.nro_factura or "",
+                }
+            )
+
+        if export_fmt == "xlsx":
+            if pd is None:
+                return Response("Pandas no instalado", status=500)
+            df = pd.DataFrame(rows)
+            bio = io.BytesIO()
+            with pd.ExcelWriter(bio, engine="openpyxl") as writer:
+                df.to_excel(writer, index=False, sheet_name=f"Compras_{ym}")
+            bio.seek(0)
+            return send_file(
+                bio,
+                as_attachment=True,
+                download_name=f"compras_{ym}.xlsx",
+                mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        else:
+            sio = io.StringIO()
+            if rows:
+                writer = csv.DictWriter(sio, fieldnames=rows[0].keys())
+                writer.writeheader()
+                writer.writerows(rows)
+            return Response(
+                sio.getvalue(),
+                mimetype="text/csv",
+                headers={"Content-Disposition": f"attachment; filename=compras_{ym}.csv"},
+            )
+
+    # vista HTML normal: pasar year/month al template para que los selects funcionen
+    compras = compras_query.order_by(Compra.fecha.desc()).limit(300).all()
+    return render_template("compras_list.html", compras=compras, year=year, month=month, current_year=today.year)
+
+
+@app.route("/ventas/export_xlsx")
+def export_ventas_xls():
+    """
+    Endpoint auxiliar (opción B): mantiene el nombre antiguo `export_ventas_xls`.
+    Redirige a la vista `ventas_list` con el parámetro export='xlsx' para
+    reutilizar la lógica centralizada de export en ventas_list.
+    """
+    year = request.args.get("year")
+    month = request.args.get("month")
+    return redirect(url_for("ventas_list", year=year, month=month, export="xlsx"))
 
 
 @app.route("/ventas")
 def ventas_list():
-    ventas = db.session.query(Venta).order_by(Venta.fecha.desc()).limit(300).all()
-    return render_template("ventas_list.html", ventas=ventas)
+    """
+    Listado de ventas con soporte de filtro year/month (month=1-12, 13=Todos)
+    y soporte de export (export='csv' | 'xlsx').
 
+    - Si no se pasa `month` en querystring, por defecto se usa 13 ("Todos").
+    - Si se pasa export='csv' o export='xlsx', se devuelve el archivo correspondiente.
+    - En la renderización normal se devuelven las ventas limitadas a 300 por orden fecha desc.
+    """
+    today = date.today()
+    year = int(request.args.get("year", today.year))
+
+    month_arg = request.args.get("month", None)
+    month = int(month_arg) if month_arg is not None else 13
+
+    # Construir ventas_query según year/month (misma lógica que index)
+    if year == 1313 and month == 13:
+        ventas_query = db.session.query(Venta)
+        ym = "all"
+    elif month == 13:
+        ventas_query = db.session.query(Venta).filter(Venta.ym.like(f"{year}-%"))
+        ym = f"{year}-*"
+    elif year == 1313:
+        ventas_query = db.session.query(Venta).filter(Venta.id == -1)
+        ym = "none"
+    else:
+        ym = f"{year:04d}-{month:02d}"
+        ventas_query = db.session.query(Venta).filter(Venta.ym == ym)
+
+    export_fmt = (request.args.get("export") or "").lower()
+
+    if export_fmt:
+        # preparar filas para export (lista de dicts)
+        rows = []
+        ventas_iter = ventas_query.order_by(Venta.fecha.desc()).all()
+        socios_map = {sid: nom for sid, nom in db.session.query(Socio.id, Socio.nombre).all()}
+        for v in ventas_iter:
+            rows.append(
+                {
+                    "fecha": v.fecha.strftime("%Y-%m-%d") if v.fecha else "",
+                    "cliente": v.cliente or "",
+                    "socio": socios_map.get(v.socio_id, ""),
+                    "pesos_sin_iva": round(float(v.pesos_sin_iva or 0.0), 2),
+                    "iva_21": round(float(v.iva_21 or 0.0), 2),
+                    "iva_105": round(float(v.iva_105 or 0.0), 2),
+                    "total_con_iva": round(float(v.total_con_iva or ((v.pesos_sin_iva or 0.0) + (v.iva_21 or 0.0) + (v.iva_105 or 0.0))), 2),
+                    "estado": v.estado or "",
+                    "descripcion": v.descripcion or "",
+                    "nro_factura": v.nro_factura or "",
+                }
+            )
+
+        if export_fmt == "xlsx":
+            if pd is None:
+                return Response("Pandas no instalado", status=500)
+            df = pd.DataFrame(rows)
+            bio = io.BytesIO()
+            with pd.ExcelWriter(bio, engine="openpyxl") as writer:
+                df.to_excel(writer, index=False, sheet_name=f"Ventas_{ym}")
+            bio.seek(0)
+            return send_file(
+                bio,
+                as_attachment=True,
+                download_name=f"ventas_{ym}.xlsx",
+                mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        else:
+            # csv
+            sio = io.StringIO()
+            if rows:
+                writer = csv.DictWriter(sio, fieldnames=rows[0].keys())
+                writer.writeheader()
+                writer.writerows(rows)
+            return Response(
+                sio.getvalue(),
+                mimetype="text/csv",
+                headers={"Content-Disposition": f"attachment; filename=ventas_{ym}.csv"},
+            )
+
+    # vista HTML normal: pasar year/month al template para que los selects funcionen
+    ventas = ventas_query.order_by(Venta.fecha.desc()).limit(300).all()
+    return render_template("ventas_list.html", ventas=ventas, year=year, month=month, current_year=today.year)
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=int(os.getenv("PORT", "5000")))

@@ -1,41 +1,122 @@
 {% extends 'base.html' %}
 {% block content %}
-<h3>Resumen mensual</h3>
+
+<!--
+  Template: index.html
+  Ruta: /workspaces/OEVI-SoftGestion/templates/index.html
+
+  Propósito:
+  - Página principal del dashboard que muestra un resumen mensual de ventas, compras,
+    IVA y métricas por socio.
+  - Permite filtrar por año y mes, y exportar datos en CSV o XLSX.
+
+  Variables esperadas (desde la vista Flask):
+  - year: entero -> año actualmente seleccionado
+  - month: entero o cadena -> mes actualmente seleccionado (1-12, o '13' para "Todos")
+  - ventas_tot: dict con claves 'monto_total' y 'iva' (totales de ventas)
+  - compras_tot: dict con claves 'monto_total', 'iva', 'iva_deducible' (totales de compras)
+  - ganancia_neta: número -> ganancia neta sin IVA
+  - ventas_sin_iva: número -> ventas sin IVA
+  - compras_sin_iva: número -> compras sin IVA
+  - iva_a_pagar: número -> cálculo de IVA a pagar
+  - adeudado_compras, adeudado_ventas: enteros/strings -> contadores de deudas
+  - per_socio: lista de dicts -> cada dict con 'nombre', 'ventas_sin_iva', 'compras_sin_iva'
+  - debug: boolean -> si true muestra información de depuración
+
+  Notas:
+  - Se usan filtros Jinja2: | ars para formateo de moneda.
+  - Mantener coherencia de tipos para month (se compara como string en varios lugares).
+-->
+
+<div class="container py-4">
+  <h2>Resumen Mensual:
+    
+    {% if year is defined %}
+      {% if (year|string) == '1313' and (month|string) == '13' %}
+              {% set subtitle = "Período: todos los años" %}
+      {% elif (month|string) == '13' %}
+              {% set subtitle = "Período: año completo" %}
+      {% else %}
+              {% set subtitle = "Período: " ~ (months[month_i] if month_i and month_i > 0 else (month|string)) ~ " / Año: " ~ year %}
+      {% endif %}
+    {% else %}
+      {# fallback legacy ym #}
+      {% if ym == "all" %}
+              {% set subtitle = "Período: todos los años" %}
+      {% elif ym and ym.endswith("-*") %}
+              {% set subtitle = "Período: año " ~ ym[:4] %}
+      {% elif ym and ym|length >= 7 %}
+              {% set y = ym[:4] %}
+              {% set mnum = (ym[5:7])|int %}
+              {% set mname = months[mnum] if mnum > 0 and mnum <=12 else mnum %}
+              {% set subtitle = "Período: " ~ title %}
+      {% else %}
+              {% set subtitle = "Período" %}
+              {% endif %}
+    {% endif %}
+
+    <h2 class="me-3 mb-0"></h2>
+    <span class="badge bg-warning text-dark" style="font-size: 1rem;">{{ subtitle }}</span>
+    
+  </div>
+
+<!--
+  Formulario de filtros:
+  - class="row g-2 mb-3"
+    - row: fila del grid de Bootstrap
+    - g-2: gap entre columnas (espaciado)
+    - mb-3: margin-bottom para separar del contenido siguiente
+  Método: GET para mantener filtros en la URL.
+-->
 <form class="row g-2 mb-3" method="get" action="/">
-  
-<div class="col-auto">
-  <label class="form-label">Año</label>
-  <select name="year" class="form-control form-select">
-    <option value="1313"  {% for y in range(2025, 2028) %}>Todos</option>
-    <option value="{{ y }}" {% if year == y %}selected{% endif %}>{{ y }}</option>{% endfor %}
-  </select>
- 
-<!-- <input type="number" name="year" value="{{ year }}" class="form-control"/>-->
-</div>
+  <!--
+    Contenedor del select de año:
+    - class="col-auto": columna automática que ajusta ancho al contenido
+  -->
+  <div class="col-auto">
+    <label class="form-label">Año</label>
+    <select name="year" class="form-control form-select">
+      <option value="1313" {% if request.args.get('year') is not none and (request.args.get('year')|int) == 1313 %}selected{% endif %}>Todos</option>
+      {% for y in range(current_year, current_year-4, -1) %}
+        <option value="{{ y }}" {% if (request.args.get('year') is none and y == year) or (request.args.get('year') is not none and (request.args.get('year')|int) == y) %}selected{% endif %}>{{ y }}</option>
+      {% endfor %}
+    </select>
+  </div>
 
-<div class="col-auto">
-  <label class="form-label">Mes</label>
-  <select name="month" class="form-control form-select">
-    <!-- "Todos" -> valor vacío -->
-    <!-- <option value="" {% if not month %}selected{% endif %}>Todos</option>-->
+  <!--
+    Contenedor del select de mes:
+    - class="col-auto": columna automática para el select del mes
+    - Por defecto (si no viene month en la query) el backend asigna month=13 (Todos),
+      por eso aquí se selecciona según la variable `month`.
+  -->
+  <div class="col-auto">
+    <label class="form-label">Mes</label>
+    <!-- class="form-control form-select": control con padding/alto estándar -->
+    <select name="month" class="form-control form-select">
+      <option value="13" {% if (month|string) == '13' %}selected{% endif %}>Todos</option>
+      <option value="1"  {% if (month|string) == '1'  %}selected{% endif %}>Enero</option>
+      <option value="2"  {% if (month|string) == '2'  %}selected{% endif %}>Febrero</option>
+      <option value="3"  {% if (month|string) == '3'  %}selected{% endif %}>Marzo</option>
+      <option value="4"  {% if (month|string) == '4'  %}selected{% endif %}>Abril</option>
+      <option value="5"  {% if (month|string) == '5'  %}selected{% endif %}>Mayo</option>
+      <option value="6"  {% if (month|string) == '6'  %}selected{% endif %}>Junio</option>
+      <option value="7"  {% if (month|string) == '7'  %}selected{% endif %}>Julio</option>
+      <option value="8"  {% if (month|string) == '8'  %}selected{% endif %}>Agosto</option>
+      <option value="9"  {% if (month|string) == '9'  %}selected{% endif %}>Septiembre</option>
+      <option value="10" {% if (month|string) == '10' %}selected{% endif %}>Octubre</option>
+      <option value="11" {% if (month|string) == '11' %}selected{% endif %}>Noviembre</option>
+      <option value="12" {% if (month|string) == '12' %}selected{% endif %}>Diciembre</option>
+    </select>
+  </div>
 
-    <!-- Meses 0..12 -->
-    <option value="13"  {% if (month|string) == '13'  %}selected{% endif %}>Todos</option>
-    <option value="1"  {% if (month|string) == '1'  %}selected{% endif %}>Enero</option>
-    <option value="2"  {% if (month|string) == '2'  %}selected{% endif %}>Febrero</option>
-    <option value="3"  {% if (month|string) == '3'  %}selected{% endif %}>Marzo</option>
-    <option value="4"  {% if (month|string) == '4'  %}selected{% endif %}>Abril</option>
-    <option value="5"  {% if (month|string) == '5'  %}selected{% endif %}>Mayo</option>
-    <option value="6"  {% if (month|string) == '6'  %}selected{% endif %}>Junio</option>
-    <option value="7"  {% if (month|string) == '7'  %}selected{% endif %}>Julio</option>
-    <option value="8"  {% if (month|string) == '8'  %}selected{% endif %}>Agosto</option>
-    <option value="9"  {% if (month|string) == '9'  %}selected{% endif %}>Septiembre</option>
-    <option value="10" {% if (month|string) == '10' %}selected{% endif %}>Octubre</option>
-    <option value="11" {% if (month|string) == '11' %}selected{% endif %}>Noviembre</option>
-    <option value="12" {% if (month|string) == '12' %}selected{% endif %}>Diciembre</option>
-  </select>
-</div>
-
+  <!--
+    Botones de acción:
+    - class="col-auto align-self-end d-flex gap-2"
+      - col-auto: columna de ancho automático
+      - align-self-end: alinea el contenido al final de la fila (verticalmente)
+      - d-flex: display flex para alinear los botones en línea
+      - gap-2: espacio entre botones
+  -->
   <div class="col-auto align-self-end d-flex gap-2">
     <button class="btn btn-primary">Aplicar</button>
     <a class="btn btn-outline-primary" href="{{ url_for('dashboard_export', year=year, month=month, format='csv') }}">Exportar CSV</a>
@@ -43,14 +124,37 @@
   </div>
 </form>
 
+<!--
+  Grid de tarjetas de métricas:
+  - class="row g-3": fila con gap 3 entre columnas
+-->
 <div class="row g-3">
+  <!--
+    Tarjeta: columna de 3 en pantallas md (4 tarjetas en una fila)
+    - class="col-md-3": ancho responsivo (3 columnas en md+)
+  -->
   <div class="col-md-3">
+    <!--
+      class="card": contenedor tipo tarjeta de Bootstrap
+    -->
     <div class="card"><div class="card-body">
+        <!--
+          class="card-body": padding interno de la tarjeta
+        -->
         <h6>Ventas (total)</h6>
+        <!--
+          class="fs-5": tamaño de fuente (Bootstrap utility)
+          Se muestra ventas_tot['monto_total'] formateado con el filtro | ars
+        -->
       <div class="fs-5">{{ ventas_tot['monto_total'] | ars }}</div>
       <small class="text-muted">IVA: {{ ventas_tot['iva'] | ars }}</small>
     </div></div>
   </div>
+
+  <!--
+    Segunda tarjeta: Compras totales
+    - class="col-md-3": columna responsiva
+  -->
   <div class="col-md-3">
     <div class="card"><div class="card-body">
         <h6>Compras (total)</h6>
@@ -59,6 +163,10 @@
       <small class="text-muted">IVA deducible (emp.): {{ compras_tot['iva_deducible'] | ars }}</small>
     </div></div>
   </div>
+
+  <!--
+    Tercera tarjeta: Ganancia neta sin IVA
+  -->
   <div class="col-md-3">
     <div class="card"><div class="card-body">
       <h6>Ganancia neta s/IVA</h6>
@@ -67,6 +175,10 @@
       <small class="text-muted">Compras s/IVA: {{ compras_sin_iva | ars }}</small>
     </div></div>
   </div>
+
+  <!--
+    Cuarta tarjeta: IVA a pagar
+  -->
   <div class="col-md-3">
     <div class="card">
       <div class="card-body">
@@ -78,53 +190,99 @@
   </div>
 </div>
 
+<!--
+  Sección de alertas:
+  - class="row g-3 mt-2": separada con margin-top y gap entre columnas
+-->
 <div class="row g-3 mt-2">
+  <!--
+    Alerta/columna principal:
+    - class="col-md-6": ocupa mitad del ancho en pantallas md+
+  -->
   <div class="col-md-6">
+    <!--
+      class="card border-warning": tarjeta con borde amarillo (alerta visual)
+    -->
     <div class="card border-warning">
       <div class="card-body">
         <h6>Alertas</h6>
-        <div style="margin-bottom: 10px;">Compras ADEUDADAS: <span class="badge bg-warning text-dark" style="font-size: 1rem;">{{ adeudado_compras }}</span></div>
-        <div style="margin-bottom: 10px;">Ventas ADEUDADAS: <span class="badge bg-warning text-dark" style="font-size: 1rem;">{{ adeudado_ventas }}</span></div>
+        <!-- Badges que muestran contadores de deudas -->
+        <div style="margin-bottom: 10px;">
+          Compras ADEUDADAS:
+          <!-- class="badge bg-warning text-dark": estilo de badge con fondo amarillo y texto oscuro -->
+          <span class="badge bg-warning text-dark" style="font-size: 1rem;">{{ adeudado_compras }}</span>
+        </div>
+        <div style="margin-bottom: 10px;">
+          Ventas ADEUDADAS:
+          <span class="badge bg-warning text-dark" style="font-size: 1rem;">{{ adeudado_ventas }}</span>
+        </div>
       </div>
     </div>
   </div>
 </div>
 
+<!--
+  Tabla "Por socio":
+  - class="table-responsive": contenedor que añade scroll horizontal en pantallas pequeñas
+-->
 <h4 class="mt-4">Por socio</h4>
 <div class="table-responsive">
-<table class="table table-sm table-striped">
-  <thead>
-    <tr>
-      <th>Socio</th>
-      <th class="text-end">Ventas s/IVA</th>
-      <th class="text-end">Compras s/IVA</th>
-      
-    </tr>
-  </thead>
-  <tbody>
-    {% for item in per_socio %}
-    <tr>
-      <td>{{ item.nombre }}</td>
-      <td class="text-end">{{ item.ventas_sin_iva | ars }}</td>
-      <td class="text-end">{{ item.compras_sin_iva | ars }}</td>
-      
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+  <!--
+    class="table table-sm table-striped":
+    - table: estilo base de tabla Bootstrap
+    - table-sm: filas más compactas
+    - table-striped: filas alternadas para mejor lectura
+  -->
+  <table class="table table-sm table-striped">
+    <thead>
+      <tr>
+        <th>Socio</th>
+        <!-- class="text-end": alineación a la derecha para columnas numéricas -->
+        <th class="text-end">Ventas s/IVA</th>
+        <th class="text-end">Compras s/IVA</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in per_socio %}
+      <tr>
+        <td>{{ item.nombre if item.nombre is defined else (item.get('nombre') if item.get is defined else '—') }}</td>
+
+        <td class="text-end">
+          {% if item is mapping %}
+            {{ (item['ventas_sin_iva'] | default(0)) | ars }}
+          {% else %}
+            {{ (item.ventas_sin_iva | default(0)) | ars }}
+          {% endif %}
+        </td>
+
+        <td class="text-end">
+          {% if item is mapping %}
+            {{ (item['compras_sin_iva'] | default(0)) | ars }}
+          {% else %}
+            {{ (item.compras_sin_iva | default(0)) | ars }}
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </div>
 
+<!--
+  Sección de depuración (solo si debug == True):
+  - class="alert alert-info mt-4": alerta informativa con margin-top
+-->
 {% if debug %}
-<div class="alert alert-info mt-4">
-  <h5>Debug info</h5>
-  <ul>
-    <li>Año: {{ year }}</li>
-    <li>Mes: {{ month }}</li>
-    <li>YM: {{ year|string ~ '-' ~ (month|string).zfill(2) }}</li>
-    <li>Compras cargadas: {{ compras_sin_iva }}</li>
-    <li>Ventas cargadas: {{ ventas_sin_iva }}</li>
-  </ul>
-</div>
+  <div class="alert alert-info mt-4">
+    <h5>Debug info</h5>
+    <ul>
+      <li>Año: {{ year }}</li>
+      <li>Mes: {{ month }}</li>
+      <li>YM: {{ year|string ~ '-' ~ (month|string).zfill(2) }}</li>
+      <li>Compras cargadas: {{ compras_sin_iva }}</li>
+      <li>Ventas cargadas: {{ ventas_sin_iva }}</li>
+    </ul>
+  </div>
 {% endif %}
 
 {% endblock %}

@@ -1,10 +1,81 @@
-
 {% extends 'base.html' %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-2">
-  <h3>Ventas</h3>
-  <a class="btn btn-secondary" href="{{ url_for('import_xls') }}">Importar Excel</a>
-</div>
+<!--
+  Template: ventas_list.html
+  Propósito: listado de Ventas con filtro por Año/Mes (month: 1-12, 13 = Todos).
+  Variables esperadas:
+    - ventas: iterable de objetos Venta (fecha, cliente, pesos_sin_iva, iva_21, iva_105, total_con_iva, estado, descripcion)
+    - year: entero (año seleccionado)
+    - month: entero/string (mes seleccionado; 13 = Todos)
+-->
+
+<div class="container py-4">
+  <h2>Ventas:
+    
+    {% if year is defined %}
+      {% if (year|string) == '1313' and (month|string) == '13' %}
+              {% set subtitle = "Período: todos los años" %}
+      {% elif (month|string) == '13' %}
+              {% set subtitle = "Período: año completo" %}
+      {% else %}
+              {% set subtitle = "Período: " ~ (months[month_i] if month_i and month_i > 0 else (month|string)) ~ " / Año: " ~ year %}
+      {% endif %}
+    {% else %}
+      {# fallback legacy ym #}
+      {% if ym == "all" %}
+              {% set subtitle = "Período: todos los años" %}
+      {% elif ym and ym.endswith("-*") %}
+              {% set subtitle = "Período: año " ~ ym[:4] %}
+      {% elif ym and ym|length >= 7 %}
+              {% set y = ym[:4] %}
+              {% set mnum = (ym[5:7])|int %}
+              {% set mname = months[mnum] if mnum > 0 and mnum <=12 else mnum %}
+              {% set subtitle = "Período: " ~ title %}
+      {% else %}
+              {% set subtitle = "Período" %}
+              {% endif %}
+    {% endif %}
+
+    <h2 class="me-3 mb-0"></h2>
+    <span class="badge bg-warning text-dark" style="font-size: 1rem;">{{ subtitle }}</span>
+  </div>
+
+<form class="row g-2 mb-3" method="get" action="{{ url_for('ventas_list') }}">
+  <div class="col-auto">
+    <label class="form-label">Año</label>
+    <select name="year" class="form-control form-select">
+      <option value="1313" {% if request.args.get('year') is not none and (request.args.get('year')|int) == 1313 %}selected{% endif %}>Todos</option>
+      {% for y in range(current_year, current_year-4, -1) %}
+      <option value="{{ y }}" {% if (request.args.get('year') is none and y == year) or (request.args.get('year') is not none and (request.args.get('year')|int) == y) %}selected{% endif %}>{{ y }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="col-auto">
+    <label class="form-label">Mes</label>
+    <select name="month" class="form-control form-select">
+      <option value="13" {% if (month|string) == '13' %}selected{% endif %}>Todos</option>
+      <option value="1"  {% if (month|string) == '1'  %}selected{% endif %}>Enero</option>
+      <option value="2"  {% if (month|string) == '2'  %}selected{% endif %}>Febrero</option>
+      <option value="3"  {% if (month|string) == '3'  %}selected{% endif %}>Marzo</option>
+      <option value="4"  {% if (month|string) == '4'  %}selected{% endif %}>Abril</option>
+      <option value="5"  {% if (month|string) == '5'  %}selected{% endif %}>Mayo</option>
+      <option value="6"  {% if (month|string) == '6'  %}selected{% endif %}>Junio</option>
+      <option value="7"  {% if (month|string) == '7'  %}selected{% endif %}>Julio</option>
+      <option value="8"  {% if (month|string) == '8'  %}selected{% endif %}>Agosto</option>
+      <option value="9"  {% if (month|string) == '9'  %}selected{% endif %}>Septiembre</option>
+      <option value="10" {% if (month|string) == '10' %}selected{% endif %}>Octubre</option>
+      <option value="11" {% if (month|string) == '11' %}selected{% endif %}>Noviembre</option>
+      <option value="12" {% if (month|string) == '12' %}selected{% endif %}>Diciembre</option>
+    </select>
+  </div>
+
+  <div class="col-auto align-self-end d-flex gap-2">
+    <button class="btn btn-primary">Aplicar</button>
+    <a class="btn btn-outline-primary" href="{{ url_for('ventas_list', year=year, month=month, export='csv') }}">Exportar CSV</a>
+  </div>
+</form>
+
 <div class="table-responsive">
 <table class="table table-sm table-hover">
   <thead>
@@ -17,14 +88,16 @@
   <tbody>
     {% for v in ventas %}
     <tr>
-      <td>{{ v.fecha.strftime('%d/%m/%Y') }}</td>
-      <td>{{ v.cliente }}</td>
-      <td class="text-end">{{ v.pesos_sin_iva | ars }}</td>
-      <td class="text-end">{{ ((v.iva_21 or 0)+(v.iva_105 or 0)) | ars }}</td>
-      <td class="text-end">{{ v.total_con_iva | ars }}</td>
-      <td><span class="badge {{ 'bg-success' if v.estado=='PAGADO' else 'bg-warning text-dark' }}">{{ v.estado }}</span></td>
+      <td>{{ v.fecha.strftime('%d/%m/%Y') if v.fecha else '—' }}</td>
+      <td>{{ v.cliente or '—' }}</td>
+      <td class="text-end">{{ (v.pesos_sin_iva or 0) | ars }}</td>
+      <td class="text-end">{{ (((v.iva_21 or 0) + (v.iva_105 or 0))) | ars }}</td>
+      <td class="text-end">{{ (v.total_con_iva or ((v.pesos_sin_iva or 0) + (v.iva_21 or 0) + (v.iva_105 or 0))) | ars }}</td>
+      <td><span class="badge {{ 'bg-success' if (v.estado or '')=='PAGADO' else 'bg-warning text-dark' }}">{{ v.estado or '—' }}</span></td>
       <td>{{ v.descripcion or '' }}</td>
     </tr>
+    {% else %}
+    <tr><td colspan="7" class="text-center">No hay registros</td></tr>
     {% endfor %}
   </tbody>
 </table>
