@@ -14,7 +14,7 @@ from flask import (
     send_from_directory,
 )
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import func, text
+from sqlalchemy import func, literal_column, text
 from werkzeug.utils import secure_filename
 import os, io, csv, shutil, time
 
@@ -109,6 +109,24 @@ class Venta(db.Model):
 
 
 def parse_date(dstr: str):
+    """
+    Parsea una fecha desde distintos formatos comunes y devuelve un objeto datetime.date.
+
+    Qué hace:
+    - Intenta parsear la cadena `dstr` con formatos predefinidos ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d", "%m/%d/%Y").
+    - Si falla, intenta usar pandas (si está disponible) para aprovechar su heurística.
+    - Lanza ValueError si no puede interpretar la entrada.
+
+    Parámetros:
+    - dstr: valor a parsear (str). Puede venir de Excel/CSV/Google Sheets.
+
+    Devuelve:
+    - datetime.date con la fecha parseada.
+
+    Efectos secundarios / quién la consume:
+    - Usada en la importación de Excel/Google Sheets (do_import_excel_from_path) para normalizar fechas.
+    - También puede usarse en otros puntos del código que reciban fechas en texto.
+    """
     for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d", "%m/%d/%Y"):
         try:
             return datetime.strptime(str(dstr).strip(), fmt).date()
@@ -122,11 +140,43 @@ def parse_date(dstr: str):
 
 
 def ym_from_date(d: date):
+    """
+    Devuelve el periodo 'YYYY-MM' (string) a partir de un objeto datetime.date.
+
+    Qué hace:
+    - Construye y retorna el string en formato 'YYYY-MM' usado como clave de periodo en la BD.
+
+    Parámetros:
+    - d: datetime.date
+
+    Devuelve:
+    - str 'YYYY-MM'
+
+    Quién la consume:
+    - Usada en importación (do_import_excel_from_path) y al crear objetos Compra/Venta para fijar `ym`.
+    """
     return f"{d.year:04d}-{d.month:02d}"
 
 
 @app.template_filter("ars")
 def format_ars(value, digits=2):
+    """
+    Formatea un número como moneda ARS para plantillas Jinja2.
+
+    Qué hace:
+    - Convierte el valor a float, aplica formato con separadores de miles y coma decimal.
+    - Devuelve string con prefijo '$'.
+
+    Parámetros:
+    - value: valor numérico o convertible (float/int/None).
+    - digits: decimales (int).
+
+    Retorno:
+    - str formateado (ej: "$1.234,56").
+
+    Quién la consume:
+    - Plantillas HTML usan este filtro para mostrar montos (p. ej. {{ monto|ars }}).
+    """
     try:
         n = float(value or 0)
     except Exception:
@@ -137,6 +187,24 @@ def format_ars(value, digits=2):
 
 @app.template_filter("factnum")
 def format_factnum(value):
+    """
+    Normaliza/da formato a números de factura para visualización.
+
+    Qué hace:
+    - Extrae solo dígitos del valor provisto.
+    - Si hay hasta 8 dígitos asume punto de venta 1 y completa con ceros.
+    - Si hay más, separa los primeros como punto de venta y los últimos 8 como número.
+    - Devuelve 'PPPP-NNNNNNNN' (4 dígitos PV + '-' + 8 dígitos nro).
+
+    Parámetros:
+    - value: string / número con dígitos.
+
+    Devuelve:
+    - str con formato o cadena original si no se encuentran dígitos.
+
+    Quién la consume:
+    - Plantillas que muestran facturas (filtro en Jinja2).
+    """
     if value is None:
         return ""
     s = str(value).strip()
@@ -157,10 +225,27 @@ def format_factnum(value):
     return f"{pv_pad}-{num}"
 
 
-# Param getter
-
-
 def get_param(clave: str, default: float | None = None) -> float:
+    """
+    Obtiene un parámetro desde la tabla Parametro o lo crea si no existe.
+
+    Qué hace:
+    - Consulta Parametro por clave.
+    - Si existe devuelve su valor.
+    - Si no existe y se pasó un default, crea el registro con ese valor y lo devuelve.
+    - Si no existe y default es None, lanza RuntimeError.
+
+    Parámetros:
+    - clave: nombre de parámetro.
+    - default: valor por defecto opcional.
+
+    Devuelve:
+    - float: valor del parámetro.
+
+    Quién la consume:
+    - Muchas vistas y builders usan parámetros (márgenes, porcentajes de IVA, flags).
+    - Importante para comportamiento configurable sin tocar código.
+    """
     p = db.session.get(Parametro, clave)
     if p is None:
         if default is None:
@@ -171,51 +256,66 @@ def get_param(clave: str, default: float | None = None) -> float:
         return default
     return p.valor
 
+def _read_param_any(keys, default=None):
+    """
+    Buscar un parámetro probando varias claves en orden y devolver su valor.
+    - keys: lista de claves a probar (ej. ["margen_Empresa","margen_empresa"])
+    - default: si se pasa y no existe ninguna clave, crea Parametro(clave=keys[0], valor=default)
+               y devuelve default.
 
-with app.app_context():
-    db.create_all()
-    # defaults
-    if db.session.get(Parametro, "margen_Empresa") is None:
-        db.session.add(Parametro(clave="margen_Empresa", valor=0.53))
-    if db.session.get(Parametro, "margen_Vendedor") is None:
-        db.session.add(Parametro(clave="margen_Vendedor", valor=0.20))
-    if db.session.get(Parametro, "margen_Socio") is None:
-        db.session.add(Parametro(clave="margen_Socio", valor=0.09))
-    if db.session.get(Parametro, "nombre_socio_obligatorio") is None:
-        db.session.add(Parametro(clave="nombre_socio_obligatorio", valor=1.0))
-    if db.session.get(Parametro, "iva_deducible_normal_pct") is None:
-        db.session.add(Parametro(clave="iva_deducible_normal_pct", valor=1.0))
-    if db.session.get(Parametro, "iva_deducible_personal_default_pct") is None:
-        db.session.add(Parametro(clave="iva_deducible_personal_default_pct", valor=0.5))
-    db.session.commit()
-    # auto-migración
-    with db.engine.begin() as conn:
-        cols = {row[1] for row in conn.execute(text("PRAGMA table_info('compras')"))}
-        if "personal" not in cols:
-            conn.execute(
-                text(
-                    "ALTER TABLE compras ADD COLUMN personal INTEGER NOT NULL DEFAULT 0"
-                )
-            )
-        if "iva_deducible_pct" not in cols:
-            conn.execute(text("ALTER TABLE compras ADD COLUMN iva_deducible_pct REAL"))
-
-
-# ------------------- BUILDERS -------------------
-
-
-def _read_param_any(key_variants, fallback: float) -> float:
-    for k in key_variants:
-        p = db.session.get(Parametro, k)
+    Retorna:
+    - valor del parámetro (float si es numérico) o lanza RuntimeError si no existe y default es None.
+    """
+    if not keys:
+        raise ValueError("keys no puede ser vacío")
+    for k in keys:
+        # intentar por PK (si la clave es PK) y fallback a query por si no funciona
+        try:
+            p = db.session.get(Parametro, k)
+        except Exception:
+            p = None
+        if p is None:
+            p = db.session.query(Parametro).filter_by(clave=k).first()
         if p is not None:
-            return p.valor
-    k0 = key_variants[0]
-    db.session.add(Parametro(clave=k0, valor=fallback))
-    db.session.commit()
-    return fallback
+            try:
+                return float(p.valor)
+            except Exception:
+                return p.valor
+    # si no existe ninguna clave, crear con default si se proporcionó
+    if default is not None:
+        k0 = keys[0]
+        p_new = Parametro(clave=k0, valor=default)
+        db.session.add(p_new)
+        db.session.commit()
+        try:
+            return float(default)
+        except Exception:
+            return default
+    raise RuntimeError(f"Ningún parametro encontrado para claves {keys} y sin default")
 
 
 def build_resumen_socio(ym: str):
+    """
+    Construye un resumen de ventas/compras agregadas por socio para un periodo `ym`.
+
+    Qué hace:
+    - Lee parámetros de márgenes (empresa, vendedor, socio).
+    - Crea consultas filtradas por `ym` (soporta 'all', 'none', 'YYYY-*' y 'YYYY-MM').
+    - Genera subconsultas agregadas (ventas y compras por socio).
+    - Junta con la tabla Socio para devolver lista de diccionarios con montos y márgenes.
+
+    Parámetros:
+    - ym: periodo string ('all', 'none', 'YYYY-*' o 'YYYY-MM').
+
+    Devuelve:
+    - (filas, p_emp, p_ven, p_soc)
+      - filas: lista de dicts con claves: YM, nombre_socio, Ganancia_neta, Margen_Empresa, Margen_Vendedor, Margen_Socios, Margen_Otros_Socios, Total_Margenes
+      - p_emp/p_ven/p_soc: valores de parámetros leídos.
+
+    Quién la consume:
+    - resumen_socio view (resumen por socio) y su export.
+    - Usada para informes por socio y cálculo de márgenes.
+    """
     # Lee parámetros (por clave) o usa fallback si no existen
     p_emp = _read_param_any(["margen_Empresa"], 0.53)
     p_ven = _read_param_any(["margen_Vendedor"], 0.20)
@@ -327,6 +427,21 @@ def build_resumen_socio(ym: str):
 
 
 def _split_fact(nro_raw):
+    """
+    Separa un número de factura crudo en punto de venta (4 dígitos), número (8 dígitos) y formato 'PV-NRO'.
+
+    Qué hace:
+    - Extrae dígitos, determina punto de venta y el número (padding si es necesario).
+
+    Parámetros:
+    - nro_raw: cadena o número con dígitos.
+
+    Devuelve:
+    - (pv_pad, num, f"{pv_pad}-{num}").
+
+    Quién la consume:
+    - build_resumen_arca para mostrar / exportar facturas con formato consistente.
+    """
     s = "".join(ch for ch in str(nro_raw or "").strip() if ch.isdigit())
     if not s:
         return "", "", ""
@@ -345,6 +460,24 @@ def _split_fact(nro_raw):
 
 
 def build_resumen_arca():
+    """
+    Construye la lista 'plana' de operaciones ARCA (compras + ventas) para mostrar en Resumen ARCA.
+
+    Qué hace:
+    - Lee todas las compras y ventas y construye una fila por operación con campos normalizados:
+      tipo_operacion, fecha, tipo_comprobante, NRO_FACTURA, PUNTO_VENTA, NRO_COMPROBANTE, CUIT, Denominación,
+      PESOS_SIN_IVA, IVA_21, IVA_105, TOTAL_CON_IVA, estado, origen_destino, nombre_socio.
+    - Calcula TOTAL_CON_IVA por fila haciendo fallback a (pesos_sin_iva + iva_21 + iva_105) cuando total_con_iva está en 0 o NULL.
+    - Normaliza nombres de socio consultando la tabla Socio.
+
+    Retorna:
+    - lista de diccionarios (filas) que consumen las vistas resumen_arca, totales_arca y sus exportadores.
+
+    Quién la consume:
+    - resumen_arca view / export
+    - totales_arca view / export (a través de build_totales_arca)
+    - Herramientas de depuración / exports
+    """
     filas = []
     socios_map = {
         sid: nom for sid, nom in db.session.query(Socio.id, Socio.nombre).all()
@@ -352,6 +485,17 @@ def build_resumen_arca():
     for c in db.session.query(Compra).all():
         tipo_up = (c.tipo or "").strip().upper()
         pv, nro8, nro_fmt = _split_fact(c.nro_factura)
+
+        # calcular total c/iva con fallback cuando total_con_iva es 0 o None
+        total_civa = None
+        try:
+            if c.total_con_iva is not None and float(c.total_con_iva) != 0.0:
+                total_civa = float(c.total_con_iva)
+            else:
+                total_civa = float((c.pesos_sin_iva or 0.0) + (c.iva_21 or 0.0) + (c.iva_105 or 0.0))
+        except Exception:
+            total_civa = float((c.pesos_sin_iva or 0.0) + (c.iva_21 or 0.0) + (c.iva_105 or 0.0))
+
         filas.append(
             {
                 "tipo_operacion": "COMPRA",
@@ -366,7 +510,7 @@ def build_resumen_arca():
                 "PESOS_SIN_IVA": round(c.pesos_sin_iva or 0.0, 2),
                 "IVA_21": round(c.iva_21 or 0.0, 2),
                 "IVA_105": round(c.iva_105 or 0.0, 2),
-                "TOTAL_CON_IVA": round(c.total_con_iva or 0.0, 2),
+                "TOTAL_CON_IVA": round(total_civa or 0.0, 2),
                 "estado": c.estado or "",
                 "origen_destino": c.origen or "",
                 "nombre_socio": socios_map.get(c.socio_id, ""),
@@ -375,6 +519,17 @@ def build_resumen_arca():
     for v in db.session.query(Venta).all():
         tipo_up = (v.tipo or "").strip().upper()
         pv, nro8, nro_fmt = _split_fact(v.nro_factura)
+
+        # calcular total c/iva con fallback cuando total_con_iva es 0 o None (ventas)
+        total_v_civa = None
+        try:
+            if v.total_con_iva is not None and float(v.total_con_iva) != 0.0:
+                total_v_civa = float(v.total_con_iva)
+            else:
+                total_v_civa = float((v.pesos_sin_iva or 0.0) + (v.iva_21 or 0.0) + (v.iva_105 or 0.0))
+        except Exception:
+            total_v_civa = float((v.pesos_sin_iva or 0.0) + (v.iva_21 or 0.0) + (v.iva_105 or 0.0))
+
         filas.append(
             {
                 "tipo_operacion": "VENTA",
@@ -389,7 +544,7 @@ def build_resumen_arca():
                 "PESOS_SIN_IVA": round(v.pesos_sin_iva or 0.0, 2),
                 "IVA_21": round(v.iva_21 or 0.0, 2),
                 "IVA_105": round(v.iva_105 or 0.0, 2),
-                "TOTAL_CON_IVA": round(v.total_con_iva or 0.0, 2),
+                "TOTAL_CON_IVA": round(total_v_civa or 0.0, 2),
                 "estado": v.estado or "",
                 "origen_destino": v.destino or "",
                 "nombre_socio": socios_map.get(v.socio_id, ""),
@@ -399,6 +554,23 @@ def build_resumen_arca():
 
 
 def build_totales_arca(filtered=None):
+    """
+    Agrega (suma) las filas de build_resumen_arca por periodo (YM) y tipo_operacion.
+
+    Qué hace:
+    - Acepta 'filtered' (lista de filas ya filtradas) o genera todas las filas.
+    - Agrupa por (YM, tipo_operacion) y suma PESOS_SIN_IVA, IVA_21, IVA_105 y TOTAL_CON_IVA.
+    - Añade cálculo Saldo_Tecnico_IVA = IVA_21 + IVA_105 y redondea resultados.
+
+    Parámetros:
+    - filtered: lista opcional de filas (tal como las generadas por build_resumen_arca).
+
+    Devuelve:
+    - lista de diccionarios con claves: YM, tipo_operacion, PESOS_SIN_IVA, IVA_21, IVA_105, TOTAL_CON_IVA, Saldo_Tecnico_IVA.
+
+    Quién la consume:
+    - totales_arca view y su export. Garantiza el formato que usan las plantillas.
+    """
     filas = filtered if filtered is not None else build_resumen_arca()
     agg = {}
     for f in filas:
@@ -434,6 +606,26 @@ def build_totales_arca(filtered=None):
 # ------------------- RUTAS -------------------
 @app.route("/")
 def index():
+    """
+    Página principal / dashboard.
+
+    Qué hace:
+    - Lee filtros year/month de la querystring y construye consultas filtradas.
+    - Calcula totales agregados (ventas sin IVA, IVA ventas, compras sin IVA, IVA compras).
+    - Calcula IVA deducible considerando la bandera 'personal' y porcentajes configurables.
+    - Prepara datos por socio para mostrar en el dashboard.
+    - Renderiza 'index.html' con todos los totales y listas auxiliares.
+
+    Parámetros (via querystring):
+    - year: año (int) (opcional)
+    - month: mes (1-12) o 13 para 'Todos' (opcional)
+
+    Renderiza:
+    - 'index.html' con variables: ventas_tot, compras_tot, ventas_sin_iva, compras_sin_iva, ganancia_neta, iva_a_pagar, per_socio, current_year, etc.
+
+    Quién la consume:
+    - Usuario final a través del navegador.
+    """
     today = date.today()
     year = int(request.args.get("year", today.year))
 
@@ -591,6 +783,21 @@ def index():
 # ------------------- Dashboard export (RESTABLECIDO) -------------------
 @app.route("/dashboard/export")
 def dashboard_export():
+    """
+    Exporta un resumen dashboard (por year/month) en CSV o XLSX.
+
+    Qué hace:
+    - Aplica la misma lógica de filtros year/month que la vista index.
+    - Calcula varios agregados (ventas, compras, IVA personal, adeudados).
+    - Devuelve un XLSX o CSV con un único registro resumen.
+
+    Parámetros (querystring):
+    - year, month: para filtrar el periodo.
+    - format: 'csv' (default) o 'xlsx'.
+
+    Quién la consume:
+    - Usuario a través de la UI (botón Exportar en el dashboard).
+    """
     today = date.today()
     year = int(request.args.get("year", today.year))
     month = int(request.args.get("month", today.month))
@@ -648,9 +855,6 @@ def dashboard_export():
             iva_personal_total += base
             iva_personal_credito_empresa += base * eff
 
-    margen_sin_iva = ventas_sin_iva - compras_sin_iva
-    iva_a_pagar = iva_venta - iva_compra_creditable
-
     resumen = [
         {
             "YM": ym,
@@ -678,6 +882,7 @@ def dashboard_export():
         }
     ]
 
+    fmt = request.args.get("format", "csv").lower()
     if fmt == "xlsx":
         if pd is None:
             return Response("Pandas no instalado", status=500)
@@ -775,25 +980,48 @@ def resumen_arca_export():
 
 @app.route("/totales-arca")
 def totales_arca():
-    filas = build_resumen_arca()
-    ym = request.args.get("ym")
+    ym = request.args.get("ym", "") or ""
     tipo = (request.args.get("tipo") or "").upper()
     incluirN = request.args.get("incluirN", "0") == "1"
+
+    try:
+        filas_totales = build_totales_arca()
+    except Exception as e:
+        print("[totales_arca] build_resumen_arca error:", e)
+        filas_totales = []
+
+    def valid_ym(f):
+        y = f.get("YM", "") or ""
+        if not (isinstance(y, str) and len(y) == 7 and y[4] == '-' and y[:4].isdigit()):
+            return False
+        if y == "1970-01":
+            return False
+        return True
+
+    filas = [f for f in filas_totales if valid_ym(f)]
     if ym:
-        filas = [f for f in filas if f["fecha"][:7] == ym]
-    if not incluirN:
-        filas = [f for f in filas if (f["tipo_comprobante"] in {"A", "B"})]
-    if tipo in {"A", "B", "N"}:
-        filas = [f for f in filas if f["tipo_comprobante"] == tipo]
-    agg = build_totales_arca(filas)
-    ym_list = sorted({f["fecha"][:7] for f in build_resumen_arca()}, reverse=True)
+        filas = [f for f in filas if f.get("YM", "") == ym]
+
+    filas = sorted(filas, key=lambda x: (x.get("YM", ""), x.get("tipo_operacion", "")), reverse=False)
+    ym_list = sorted({f.get("YM", "") for f in filas if f.get("YM")}, reverse=True)
+
+    # Totales por YM: resultado = Saldo_Tecnico_IVA(VENTA) - Saldo_Tecnico_IVA(COMPRA)
+    totals = []
+    for y in sorted({f.get("YM") for f in filas}):
+        ventas = sum((f.get("Saldo_Tecnico_IVA") or 0) for f in filas if f.get("YM") == y and (f.get("tipo_operacion") or "").upper() == "VENTA")
+        compras = sum((f.get("Saldo_Tecnico_IVA") or 0) for f in filas if f.get("YM") == y and (f.get("tipo_operacion") or "").upper() == "COMPRA")
+        totals.append({"YM": y, "ventas": ventas, "compras": compras, "resultado": ventas - compras})
+
+    print(f"[totales_arca] pasando {len(filas)} filas a template (raw totales={len(filas_totales)}) totals={len(totals)}")
+
     return render_template(
         "totales_arca.html",
-        filas=agg,
+        filas=filas,
         ym=ym or "",
         ym_list=ym_list,
         tipo=tipo or "",
         incluirN=int(incluirN),
+        totals=totals,
     )
 
 
@@ -810,11 +1038,14 @@ def totales_arca_export():
         filas = [f for f in filas if (f["tipo_comprobante"] in {"A", "B"})]
     if tipo in {"A", "B", "N"}:
         filas = [f for f in filas if f["tipo_comprobante"] == tipo]
-    agg = build_totales_arca(filas)
+
+    # usar el agregador existente (asegura keys/format compatibles con la plantilla)
+    filas_totales = build_totales_arca(filtered=filas)
+
     if fmt == "xlsx":
         if pd is None:
             return Response("Pandas no instalado", status=500)
-        df = pd.DataFrame(agg)
+        df = pd.DataFrame(filas_totales)
         bio = io.BytesIO()
         with pd.ExcelWriter(bio, engine="openpyxl") as writer:
             df.to_excel(writer, index=False, sheet_name="Totales_ARCA")
@@ -828,10 +1059,10 @@ def totales_arca_export():
         )
     else:
         sio = io.StringIO()
-        if agg:
-            writer = csv.DictWriter(sio, fieldnames=agg[0].keys())
+        if filas_totales:
+            writer = csv.DictWriter(sio, fieldnames=filas_totales[0].keys())
             writer.writeheader()
-            writer.writerows(agg)
+            writer.writerows(filas_totales)
         return Response(
             sio.getvalue(),
             mimetype="text/csv",
@@ -854,78 +1085,37 @@ def resumen_socio_view():
     yms = db.session.query(Compra.ym).distinct().union(db.session.query(Venta.ym)).all()
     ym_list = sorted({r[0] for r in yms if r[0]}, reverse=True)
 
-    # Leer filtros year/month (nuevos)
+    # leer filtros year/month (ya presente)
     today = date.today()
-    year_arg = request.args.get("year")
-    month_arg = request.args.get("month")
+    year = int(request.args.get("year", today.year))
+    month_arg = request.args.get("month", None)
+    month = int(month_arg) if month_arg is not None else 13
 
-    if year_arg is not None or month_arg is not None:
-        # usar year/month con defaults (year -> hoy, month -> 13 = Todos)
-        year = int(year_arg) if year_arg is not None else today.year
-        month = int(month_arg) if month_arg is not None else 13
+    # nuevo filtro: socio (nombre)
+    socio_name = (request.args.get("socio") or "").strip()
+    socios = [n for (_id, n) in db.session.query(Socio.id, Socio.nombre).order_by(Socio.nombre).all()]
 
-        # construir ym según convención
-        if year == 1313 and month == 13:
-            ym = "all"
-        elif month == 13:
-            ym = f"{year}-*"
-        elif year == 1313:
-            ym = "none"
-        else:
-            ym = f"{year:04d}-{month:02d}"
-    else:
-        # comportamiento legacy: usar ?ym= o el primer ym disponible
-        ym = request.args.get("ym")
-        if not ym or ym not in ym_list:
-            ym = ym_list[0] if ym_list else None
-        # intentar derivar year/month para los selects si es posible
-        if ym and len(ym) >= 4 and ym[4:7] == "-*":
-            year = int(ym[:4]) if ym[:4].isdigit() else today.year
-            month = 13
-        elif ym and len(ym) >= 7 and ym[4] == "-":
-            year = int(ym[:4]) if ym[:4].isdigit() else today.year
-            try:
-                month = int(ym[5:7])
-            except Exception:
-                month = 13
-        elif ym == "all":
-            year = today.year
-            month = 13
-        else:
-            year = today.year
-            month = 13
-
-    if not ym:
-        flash(
-            "No hay datos cargados aún. Importá el Excel/Sheet para ver el resumen.",
-            "warning",
-        )
-        return render_template(
-            "resumen_socio.html",
-            filas=[],
-            ym="",
-            ym_list=[],
-            p_emp=0,
-            p_ven=0,
-            p_soc=0,
-            year=year,
-            month=month,
-        )
-
-    # Después de determinar `ym` (antes de llamar a build_resumen_socio):
-    if ym == "all":
+    # construir ventas_query según year/month (misma lógica que index/ventas/compras)
+    if year == 1313 and month == 13:
         ventas_query = db.session.query(Venta)
         compras_query = db.session.query(Compra)
-    elif ym and ym.endswith("-*"):
-        y_prefix = ym[:4]
-        ventas_query = db.session.query(Venta).filter(Venta.ym.like(f"{y_prefix}-%"))
-        compras_query = db.session.query(Compra).filter(Compra.ym.like(f"{y_prefix}-%"))
-    elif ym == "none":
+        ym = "all"
+    elif month == 13:
+        ventas_query = db.session.query(Venta).filter(Venta.ym.like(f"{year}-%"))
+        compras_query = db.session.query(Compra).filter(Compra.ym.like(f"{year}-%"))
+        ym = f"{year}-*"
+    elif year == 1313:
         ventas_query = db.session.query(Venta).filter(Venta.id == -1)
         compras_query = db.session.query(Compra).filter(Compra.id == -1)
+        ym = "none"
     else:
+        ym = f"{year:04d}-{month:02d}"
         ventas_query = db.session.query(Venta).filter(Venta.ym == ym)
         compras_query = db.session.query(Compra).filter(Compra.ym == ym)
+
+    # aplicar filtro por nombre_socio si se pidió
+    if socio_name:
+        ventas_query = ventas_query.join(Socio, Venta.socio_id == Socio.id).filter(Socio.nombre == socio_name)
 
     total_ventas_con_iva = float(
         ventas_query.with_entities(
@@ -942,6 +1132,13 @@ def resumen_socio_view():
             )
         ).scalar()
         or 0.0
+    )
+
+    # total ventas sin IVA (base)
+    total_ventas_sin_iva = float(
+        ventas_query.with_entities(
+            func.coalesce(func.sum(func.coalesce(Venta.pesos_sin_iva, 0.0)), 0.0)
+        ).scalar() or 0.0
     )
 
     # total compras: mismo tratamiento
@@ -962,11 +1159,34 @@ def resumen_socio_view():
         or 0.0
     )
 
+    # total compras sin IVA (base)
+    total_compras_sin_iva = float(
+        compras_query.with_entities(
+            func.coalesce(func.sum(func.coalesce(Compra.pesos_sin_iva, 0.0)), 0.0)
+        ).scalar() or 0.0
+    )
+
+    # saldos
     saldo_con_iva = total_ventas_con_iva - total_compras_con_iva
+    saldo_sin_iva = total_ventas_sin_iva - total_compras_sin_iva
+
+    # IVA explicit (opcional)
+    total_ventas_iva_amt = total_ventas_con_iva - total_ventas_sin_iva
+    total_compras_iva_amt = total_compras_con_iva - total_compras_sin_iva
+
+    # Saldo del IVA (ventas IVA - compras IVA)
+    total_iva_saldo = total_ventas_iva_amt - total_compras_iva_amt
 
     # debug
     try:
-        app.logger.debug("Resumen Socio - ym=%s ventas_total=%s compras_total=%s", ym, total_ventas_con_iva, total_compras_con_iva)
+        app.logger.debug(
+            "Resumen Socio - ym=%s ventas_total=%s compras_total=%s ventas_sin_iva=%s compras_sin_iva=%s",
+            ym,
+            total_ventas_con_iva,
+            total_compras_con_iva,
+            total_ventas_sin_iva,
+            total_compras_sin_iva,
+        )
     except Exception:
         pass
 
@@ -985,6 +1205,12 @@ def resumen_socio_view():
         total_ventas_con_iva=total_ventas_con_iva,
         total_compras_con_iva=total_compras_con_iva,
         saldo_con_iva=saldo_con_iva,
+        total_ventas_sin_iva=total_ventas_sin_iva,
+        total_compras_sin_iva=total_compras_sin_iva,
+        saldo_sin_iva=saldo_sin_iva,
+        total_ventas_iva_amt=total_ventas_iva_amt,
+        total_compras_iva_amt=total_compras_iva_amt,
+        total_iva_saldo=total_iva_saldo,
     )
 
 
@@ -1051,7 +1277,7 @@ def resumen_socio_export():
                     "Ganancia_neta",
                     "Margen_Empresa",
                     "Margen_Vendedor",
-                    "Margen_Socios",
+                    "Margen_Socio",
                     "Margen_Otros_Socios",
                     "Total_Margenes",
                 ]
@@ -1071,8 +1297,30 @@ def resumen_socio_export():
 
 
 def do_import_excel_from_path(path: str):
-    if pd is None:
-        raise RuntimeError("Pandas no instalado")
+    """
+    Procesa un archivo Excel (ruta local) y lo importa a la base de datos.
+
+    Qué hace:
+    - Lee pestañas esperadas: Parametros, Socios, FactCompras, FactVentas.
+    - Actualiza/crea parámetros y socios.
+    - Valida y convierte filas de compras/ventas, crea objetos Compra/Venta.
+    - Maneja rechazos (los guarda en un CSV en uploads/ y devuelve path).
+    - Borra previamente los YMs detectados para evitar duplicados (limpieza por periodo).
+    - Ajusta márgenes por defecto en Socio si están vacíos.
+
+    Parámetros:
+    - path: ruta al archivo XLSX descargado/subido.
+
+    Devuelve:
+    - dict con keys: deleted_c, deleted_v, rechazos, rechazos_path.
+
+    Efectos secundarios:
+    - Inserta/borra filas en la BD (db.session).
+    - Crea archivos en UPLOAD_FOLDER cuando hay rechazos.
+
+    Quién la consume:
+    - import_xls route y import_gsheet (descarga y reusa esta función).
+    """
     rechazos = []
     socio_oblig = bool(int(get_param("nombre_socio_obligatorio", 1)))
     # Parametros
@@ -1316,6 +1564,19 @@ def do_import_excel_from_path(path: str):
 
 @app.route("/import/xls", methods=["GET", "POST"])
 def import_xls():
+    """
+    Ruta para subir e importar un XLSX via formulario web.
+
+    Qué hace:
+    - Si POST: guarda archivo en uploads/, llama a do_import_excel_from_path y muestra mensajes (flash).
+    - Si GET: renderiza plantilla con formulario de subida.
+
+    Requiere:
+    - pandas + openpyxl instalados para procesar XLSX.
+
+    Quién la consume:
+    - Usuario final (admin) que sube el archivo Excel con FactCompras / FactVentas.
+    """
     if request.method == "POST":
         if pd is None:
             flash("Pandas no instalado. Ejecutá: pip install pandas openpyxl", "danger")
@@ -1363,6 +1624,23 @@ def import_xls():
 
 
 def _normalize_gsheet_export_url(url_or_id: str) -> str:
+    """
+    Normaliza una URL o ID de Google Sheets para obtener el enlace de exportación XLSX.
+
+    Qué hace:
+    - Si la entrada es una URL con docs.google.com, extrae el spreadsheetId.
+    - Si es sólo un ID, lo usa directamente.
+    - Devuelve una URL '.../export?format=xlsx'.
+
+    Parámetros:
+    - url_or_id: URL completa o spreadsheetId.
+
+    Devuelve:
+    - str: URL de exportación XLSX válida.
+
+    Quién la consume:
+    - import_gsheet que descarga el XLSX desde Google Sheets.
+    """
     u = (url_or_id or "").strip()
     if not u:
         raise ValueError("URL/ID de Google Sheet vacío")
@@ -1381,6 +1659,16 @@ def _normalize_gsheet_export_url(url_or_id: str) -> str:
 
 @app.route("/import/gsheet", methods=["POST"])
 def import_gsheet():
+    """
+    Descarga un Google Sheet (XLSX) y lo importa reusando do_import_excel_from_path.
+
+    Qué hace:
+    - Normaliza la URL/ID, descarga el XLSX con requests, lo guarda en uploads/ y llama a do_import_excel_from_path.
+    - Maneja y muestra errores vía flash.
+
+    Quién la consume:
+    - Formulario de importación que permite pasar una URL o ID de Google Sheets.
+    """
     if pd is None:
         flash("Pandas no instalado. Ejecutá: pip install pandas openpyxl", "danger")
         return redirect(url_for("import_xls"))
@@ -1432,41 +1720,28 @@ def import_gsheet():
 
 @app.route("/uploads/<path:filename>")
 def download_upload(filename):
-    return send_from_directory(
-        app.config["UPLOAD_FOLDER"], filename, as_attachment=True
-    )
+    """
+    Sirve archivos estáticos guardados en UPLOAD_FOLDER (descarga).
 
-
-@app.route("/import/clean", methods=["POST"])
-def import_clean():
-    confirm = (request.form.get("confirm") or "").strip().upper()
-    keep_socios = request.form.get("keep_socios", "1") == "1"
-    keep_params = request.form.get("keep_parametros", "1") == "1"
-    if confirm != "LIMPIAR":
-        flash("Para limpiar, escribí 'LIMPIAR' en el campo de confirmación.", "warning")
-        return redirect(url_for("import_xls"))
-    bkp = backup_db("clean")
-    deleted_c = db.session.query(Compra).delete(synchronize_session=False)
-    deleted_v = db.session.query(Venta).delete(synchronize_session=False)
-    deleted_s = 0
-    deleted_par = 0
-    if not keep_socios:
-        deleted_s = db.session.query(Socio).delete(synchronize_session=False)
-    if not keep_params:
-        deleted_par = db.session.query(Parametro).delete(synchronize_session=False)
-    db.session.commit()
-    msg = f"Base limpia: Compras {deleted_c}, Ventas {deleted_v}"
-    if not keep_socios:
-        msg += f", Socios {deleted_s}"
-    if not keep_params:
-        msg += f", Parametros {deleted_par}"
-    if bkp:
-        msg += f". Backup: {os.path.basename(bkp)}"
-    flash(msg, "success")
-    return redirect(url_for("import_xls"))
+    Quién la consume:
+    - Enlaces que muestran paths de archivos generados (rechazos, export files).
+    """
+    return send_from_directory(app.config["UPLOAD_FOLDER"], filename, as_attachment=True)
 
 
 def backup_db(prefix: str = "backup") -> str:
+    """
+    Crea una copia del archivo SQLite DB en BACKUPS_FOLDER con prefijo y timestamp.
+
+    Parámetros:
+    - prefix: etiqueta para el backup (ej: 'clean').
+
+    Devuelve:
+    - ruta al fichero de backup o cadena vacía si falla.
+
+    Quién la consume:
+    - import_clean y otros lugares donde se necesite snapshot previo a cambios destructivos.
+    """
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     dst = os.path.join(BACKUPS_FOLDER, f"{prefix}_{ts}.db")
     try:
@@ -1478,6 +1753,16 @@ def backup_db(prefix: str = "backup") -> str:
 
 @app.route("/socios", methods=["GET", "POST"])
 def socios_view():
+    """
+    CRUD simple para socios (creación y listado).
+
+    Qué hace:
+    - Si POST: valida y crea un nuevo Socio.
+    - Si GET: lista socios ordenados y garantiza que margen_porcentaje tenga valor por defecto.
+
+    Quién la consume:
+    - Plantilla 'socios_list.html' y la UI de administración.
+    """
     p_emp = _read_param_any(["margen_Empresa"], 0.53)
     p_soc = _read_param_any(["margen_Socio"], 0.09)
     if request.method == "POST":
@@ -1510,10 +1795,19 @@ def socios_view():
 @app.route("/compras")
 def compras_list():
     """
-    Listado de compras con filtro year/month (month=1-12, 13=Todos)
-    y soporte de export (export='csv' | 'xlsx').
-    - Si no se pasa `month`, por defecto month=13 ("Todos").
-    - Pasa year y month al template para que los selects funcionen.
+    Lista de compras con filtros year/month y filtro por socio (nombre).
+
+    Qué hace:
+    - Construye compras_query según filtros year/month.
+    - Aplica filtro por nombre de socio (si viene).
+    - Soporta export (export=csv|xlsx) devolviendo filas con total_con_iva calculado (fallback).
+    - Renderiza plantilla 'compras_list.html' con variables: compras, year, month, current_year, socios, selected_socio.
+
+    Parámetros:
+    - year, month, socio, export
+
+    Quién la consume:
+    - Usuario en la UI (listado, export).
     """
     today = date.today()
     year = int(request.args.get("year", today.year))
@@ -1521,7 +1815,12 @@ def compras_list():
     month_arg = request.args.get("month", None)
     month = int(month_arg) if month_arg is not None else 13
 
-    # Construir compras_query según year/month (misma lógica que index/ventas_list)
+    # nuevo filtro: socio (nombre)
+    socio_name = (request.args.get("socio") or "").strip()
+    # lista de socios para el select en la plantilla
+    socios = [n for (_id, n) in db.session.query(Socio.id, Socio.nombre).order_by(Socio.nombre).all()]
+
+    # Construir compras_query según year/month (misma lógica que index/ventas/compras)
     if year == 1313 and month == 13:
         compras_query = db.session.query(Compra)
         ym = "all"
@@ -1534,6 +1833,11 @@ def compras_list():
     else:
         ym = f"{year:04d}-{month:02d}"
         compras_query = db.session.query(Compra).filter(Compra.ym == ym)
+
+    # aplicar filtro por nombre_socio si se pidió
+    if socio_name:
+        # join con Socio y filtrar por nombre (exact match). Cambia a .like(...) si querés búsqueda parcial.
+        compras_query = compras_query.join(Socio, Compra.socio_id == Socio.id).filter(Socio.nombre == socio_name)
 
     export_fmt = (request.args.get("export") or "").lower()
 
@@ -1586,7 +1890,15 @@ def compras_list():
 
     # vista HTML normal: pasar year/month al template para que los selects funcionen
     compras = compras_query.order_by(Compra.fecha.desc()).limit(300).all()
-    return render_template("compras_list.html", compras=compras, year=year, month=month, current_year=today.year)
+    return render_template(
+        "compras_list.html",
+        compras=compras,
+        year=year,
+        month=month,
+        current_year=today.year,
+        socios=socios,
+        selected_socio=socio_name,
+    )
 
 
 @app.route("/ventas/export_xlsx")
@@ -1607,15 +1919,28 @@ def ventas_list():
     Listado de ventas con soporte de filtro year/month (month=1-12, 13=Todos)
     y soporte de export (export='csv' | 'xlsx').
 
-    - Si no se pasa `month` en querystring, por defecto se usa 13 ("Todos").
-    - Si se pasa export='csv' o export='xlsx', se devuelve el archivo correspondiente.
-    - En la renderización normal se devuelven las ventas limitadas a 300 por orden fecha desc.
+    Qué hace:
+    - Construye ventas_query según filtros year/month.
+    - Aplica filtro por nombre de socio (si viene).
+    - Soporta export (export=csv|xlsx) devolviendo filas con total_con_iva calculado (fallback).
+    - Renderiza plantilla 'ventas_list.html' con variables: ventas, year, month, current_year, socios, selected_socio.
+
+    Parámetros:
+    - year, month, socio, export
+
+    Quién la consume:
+    - Usuario en la UI (listado, export).
     """
     today = date.today()
     year = int(request.args.get("year", today.year))
 
     month_arg = request.args.get("month", None)
     month = int(month_arg) if month_arg is not None else 13
+
+    # nuevo filtro: socio (nombre)
+    socio_name = (request.args.get("socio") or "").strip()
+    # lista de socios para el select en la plantilla
+    socios = [n for (_id, n) in db.session.query(Socio.id, Socio.nombre).order_by(Socio.nombre).all()]
 
     # Construir ventas_query según year/month (misma lógica que index)
     if year == 1313 and month == 13:
@@ -1630,6 +1955,10 @@ def ventas_list():
     else:
         ym = f"{year:04d}-{month:02d}"
         ventas_query = db.session.query(Venta).filter(Venta.ym == ym)
+
+    # aplicar filtro por nombre_socio si se pidió
+    if socio_name:
+        ventas_query = ventas_query.join(Socio, Venta.socio_id == Socio.id).filter(Socio.nombre == socio_name)
 
     export_fmt = (request.args.get("export") or "").lower()
 
@@ -1683,7 +2012,49 @@ def ventas_list():
 
     # vista HTML normal: pasar year/month al template para que los selects funcionen
     ventas = ventas_query.order_by(Venta.fecha.desc()).limit(300).all()
-    return render_template("ventas_list.html", ventas=ventas, year=year, month=month, current_year=today.year)
+    return render_template(
+        "ventas_list.html",
+        ventas=ventas,
+        year=year,
+        month=month,
+        current_year=today.year,
+        socios=socios,
+        selected_socio=socio_name,
+    )
 
-if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=int(os.getenv("PORT", "5000")))
+
+# ------------------- SUMAS -------------------
+from sqlalchemy import func
+
+def total_con_iva_expr(Model):
+    """
+    Crea una expresión SQLAlchemy que por fila devuelve:
+      NULLIF(Model.total_con_iva, 0) OR (pesos_sin_iva + iva_21 + iva_105)
+
+    Uso:
+    - Utilizar en SELECTs y en agregaciones GROUP BY para sumar el total correcto
+      incluso cuando la columna total_con_iva se guardó como 0 (fallback calculado).
+
+    Parámetros:
+    - Model: la clase SQLAlchemy (Compra o Venta).
+
+    Devuelve:
+    - SQLAlchemy ColumnElement etiquetado como 'TOTAL_CON_IVA' (útil en .with_entities).
+
+    Quién la consume:
+    - Vistas que agrupan/suman total_con_iva (totales_arca, resumen_socio, etc.)
+    """
+    return func.coalesce(
+        func.nullif(getattr(Model, "total_con_iva"), 0),
+        (
+            func.coalesce(getattr(Model, "pesos_sin_iva"), 0.0)
+            + func.coalesce(getattr(Model, "iva_21"), 0.0)
+            + func.coalesce(getattr(Model, "iva_105"), 0.0)
+        ),
+    ).label("TOTAL_CON_IVA")
+
+
+# ------------------- MAIN -------------------
+if __name__ == '__main__':
+    # Ejecutar la app en desarrollo, accesible desde host (útil en contenedor)
+    app.run(host='0.0.0.0', port=5000, debug=True)

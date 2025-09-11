@@ -70,6 +70,17 @@
     </select>
   </div>
 
+  <!-- Columna socio -->
+  <div class="col-auto">
+    <label class="form-label">Socio</label>
+    <select name="socio" class="form-control form-select">
+      <option value="" {% if not selected_socio %}selected{% endif %}>Todos</option>
+      {% for s in socios %}
+        <option value="{{ s }}" {% if selected_socio == s %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
   <div class="col-auto align-self-end d-flex gap-2">
     <button class="btn btn-primary">Aplicar</button>
     <a class="btn btn-outline-primary" href="{{ url_for('ventas_list', year=year, month=month, export='csv') }}">Exportar CSV</a>

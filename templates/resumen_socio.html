@@ -123,10 +123,29 @@
     {# Mostrar totales del período (ventas/compras c/IVA y saldo) #}
     <div class="mt-2">
       <small class="text-muted">Totales del período:</small>
-      <div class="d-flex gap-3 align-items-baseline mt-1">
+
+      <div class="d-flex gap-4 align-items-baseline mt-1 flex-wrap">
         <div><strong>Total Ventas (c/IVA):</strong> {{ (total_ventas_con_iva or 0.0) | ars }}</div>
         <div><strong>Total Compras (c/IVA):</strong> {{ (total_compras_con_iva or 0.0) | ars }}</div>
-        <div><strong>Saldo (Vtas - Cmpas):</strong> {{ (saldo_con_iva or 0.0) | ars }}</div>
+        <div><strong>Saldo (Vtas - Cmpas):</strong>
+          <span class="badge bg-primary text-white" style="font-size: 1rem;">{{ (saldo_con_iva or 0.0) | ars }}</span>
+        </div>
+      </div>
+
+      <div class="d-flex gap-4 align-items-baseline mt-2 flex-wrap">
+        <div><strong>Total Ventas (s/IVA):</strong> {{ (total_ventas_sin_iva or 0.0) | ars }}</div>
+        <div><strong>Total Compras (s/IVA):</strong> {{ (total_compras_sin_iva or 0.0) | ars }}</div>
+        <div><strong>Saldo (Vtas - Cmpas):</strong>
+          <span class="badge bg-warning text-dark" style="font-size: 1rem;">{{ (saldo_sin_iva or 0.0) | ars }}</span>
+        </div>
+      </div>
+
+      <div class="d-flex gap-4 align-items-baseline mt-2 flex-wrap">
+        <div><strong>IVA Total Ventas:</strong> {{ (total_ventas_iva_amt or 0.0) | ars }}</div>
+        <div><strong>IVA Total Compras:</strong> {{ (total_compras_iva_amt or 0.0) | ars }}</div>
+      <div><strong>Saldo (IVA):</strong> 
+        <span class="badge bg-secondary text-white" style="font-size: 1rem;">{{ (total_iva_saldo or 0.0) | ars }} </span>
+     </div>
       </div>
     </div>
 
@@ -207,7 +226,8 @@
           <td class="text-end">{{ r.Margen_Vendedor | ars }}</td>
           <td class="text-end">{{ r.Margen_Socios | ars }}</td>
           <td class="text-end">{{ r.Margen_Otros_Socios | ars }}</td>
-          <td class="text-end">{{ r.Total_Margenes | ars }}</td>
+          
+          <td class="text-end"><span class="badge bg-warning text-dark" style="font-size: 1rem;">{{ r.Total_Margenes | ars }}</span></td>
         </tr>
         {% else %}
         <tr><td colspan="7" class="text-center">No hay registros</td></tr>

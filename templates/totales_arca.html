@@ -1,10 +1,36 @@
-
 {% extends 'base.html' %}
 {% block content %}
-<h3>Totales ARCA</h3>
+{# 
+  Plantilla: totales_arca.html
+  Propósito: mostrar los totales ARCA por periodo (YM) y, debajo, el resultado
+  (Saldo_Tecnico_IVA VENTAS - Saldo_Tecnico_IVA COMPRAS) por cada periodo.
+  Comentarios: las explicaciones usan comentarios de Jinja para no
+  introducir texto visible en la página.
+#}
+
+<div class="container py-4">
+  <h2>Totales ARCA:
+   
+    {% if ym == "" or ym is not defined %}
+              {% set subtitle = "Período: todos los años" %}
+    {% else %}
+              {% set subtitle = "Período: " ~ ym %}
+    {% endif %}
+
+    <h2 class="me-3 mb-0"></h2>
+    <span class="badge bg-warning text-dark" style="font-size: 1rem;">{{ subtitle }}</span>
+    
+  </div>
+
+{# ------------------------------------------------------------- #
+   Formulario de filtros (select de periodo YM + botones de acción)
+   - El formulario GET permite filtrar por ym enviado en la querystring.
+   - ym_list proviene de la vista y contiene los periodos disponibles.
+#}
 <form class="row g-2 mb-3" method="get" action="{{ url_for('totales_arca') }}">
   <div class="col-auto">
-    <label class="form-label">Periodo (YM)</label>
+    {# Label y select para elegir el periodo (YYYY-MM). 'ym' es el valor actual. #}
+    <label class="form-label">Selecciona Periodo:</label>
     <select name="ym" class="form-select">
       <option value="">Todos</option>
       {% for y in ym_list %}
@@ -12,37 +38,92 @@
       {% endfor %}
     </select>
   </div>
+
+  {# Botones: Aplicar (envía el formulario) y enlaces para exportar CSV/XLSX. #}
   <div class="col-auto align-self-end d-flex gap-2">
     <button class="btn btn-primary">Aplicar</button>
     <a class="btn btn-outline-primary" href="{{ url_for('totales_arca_export', ym=ym, format='csv') }}">Exportar CSV</a>
     <a class="btn btn-outline-success" href="{{ url_for('totales_arca_export', ym=ym, format='xlsx') }}">Exportar Excel</a>
   </div>
 </form>
+
+{# ------------------------------------------------------------- #
+   Tabla principal: muestra las filas tal como vienen de la vista.
+   - 'filas' es la lista de dicts/objetos proporcionada por la función del servidor.
+   - Usamos acceso por atributo (r.YM) si r es un objeto; en caso de dict, Flask/Jinja
+     permite r['YM'] — la versión en uso funcionó con r.YM.
+   - El filtro de la vista ya excluye entradas inválidas / placeholders.
+#}
 <div class="table-responsive">
 <table class="table table-sm table-striped">
   <thead>
     <tr>
-      <th>YM</th><th>tipo_operacion</th>
+      <th>PERIODO</th>
+      <th>TIPO</th>
       <th class="text-end">PESOS_SIN_IVA</th>
       <th class="text-end">IVA_21</th>
       <th class="text-end">IVA_105</th>
       <th class="text-end">TOTAL_CON_IVA</th>
-      <th class="text-end">Saldo_Tecnico_IVA</th>
+      <th class="text-end">TOTAL_IVA</th>
     </tr>
   </thead>
   <tbody>
-    {% for r in filas %}
-    <tr>
-      <td>{{ r.YM }}</td>
-      <td>{{ r.tipo_operacion }}</td>
-      <td class="text-end">{{ r.PESOS_SIN_IVA | ars }}</td>
-      <td class="text-end">{{ r.IVA_21 | ars }}</td>
-      <td class="text-end">{{ r.IVA_105 | ars }}</td>
-      <td class="text-end">{{ r.TOTAL_CON_IVA | ars }}</td>
-      <td class="text-end">{{ r.Saldo_Tecnico_IVA | ars }}</td>
-    </tr>
-    {% endfor %}
+    {# Si no hay filas, mostramos mensaje central #}
+    {% if filas|length == 0 %}
+      <tr><td colspan="7" class="text-center text-muted">No hay filas para mostrar</td></tr>
+    {% else %}
+      {# Iteramos cada fila y mostramos sus columnas #}
+      {% for r in filas %}
+      <tr>
+        {# Se muestra YM y el tipo de operación (COMPRA/VENTA) #}
+        <td>{{ r.YM }}</td>
+        <td>{{ r.tipo_operacion }}</td>
+
+        {# Los valores monetarios se formatean con el filtro 'ars' definido en la app #}
+        <td class="text-end">{{ r.PESOS_SIN_IVA | ars }}</td>
+        <td class="text-end">{{ r.IVA_21 | ars }}</td>
+        <td class="text-end">{{ r.IVA_105 | ars }}</td>
+        <td class="text-end">{{ r.TOTAL_CON_IVA | ars }}</td>
+        <td class="text-end">{{ r.Saldo_Tecnico_IVA | ars }}</td>
+      </tr>
+      {% endfor %}
+    {% endif %}
   </tbody>
 </table>
 </div>
+
+{# ------------------------------------------------------------- #
+   Bloque de totales por periodo (totals)
+   - La vista (main.py) calcula 'totals' como lista de dicts:
+       [{ "YM": "2025-07", "ventas": <num>, "compras": <num>, "resultado": <num> }, ...]
+   - Aquí mostramos solo YM y resultado (VENTAS - COMPRAS) como solicitaste.
+   - Si se quiere cambiar el orden o añadir totales globales, se modifica la vista.
+#}
+<div class="mt-4">
+  
+  <table class="table table-sm table-bordered w-auto">
+    <thead>
+      <tr>
+        <th>PERIODO</th>
+        <th class="text-end">SALDO_A_PAGAR</th>
+      </tr>
+    </thead>
+    <tbody>
+      {# Si la lista 'totals' existe y tiene elementos, iteramos y mostramos resultado #}
+      {% if totals and totals|length > 0 %}
+        {% for t in totals %}
+          <tr>
+            <td>{{ t.YM }}</td>
+             
+            <td><span class="badge bg-success text-center" style="font-size: 1rem;">{{ t.resultado | ars }}</span> </td>
+          </tr>
+        {% endfor %}
+      {% else %}
+        <tr><td colspan="2" class="text-center text-muted">No hay totales</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+
+{# Fin del bloque content #}
 {% endblock %}
