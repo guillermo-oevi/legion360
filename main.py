@@ -35,7 +35,7 @@ BACKUPS_FOLDER = os.path.join(BASE_DIR, "backups")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(BACKUPS_FOLDER, exist_ok=True)
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder='docs')
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///" + DB_PATH
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "change-me-in-prod")
