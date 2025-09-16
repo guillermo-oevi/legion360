@@ -16,7 +16,15 @@ from flask import (
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, literal_column, text
 from werkzeug.utils import secure_filename
-import os, io, csv, shutil, time
+
+import os, io, csv, shutil, time, hashlib
+
+
+def color_index(value, num_colors=8):
+    import hashlib
+    hash_val = hashlib.md5(str(value).encode()).hexdigest()
+    return int(hash_val, 16) % num_colors
+
 
 try:
     import pandas as pd
@@ -84,7 +92,7 @@ class Compra(db.Model):
     descripcion = db.Column(db.String(255))
     personal = db.Column(db.Boolean, default=False)
     iva_deducible_pct = db.Column(db.Float, default=None)
-
+    transaccion_id = db.Column(db.String(100), nullable=True, index=True)
 
 class Venta(db.Model):
     __tablename__ = "ventas"
@@ -103,7 +111,7 @@ class Venta(db.Model):
     estado = db.Column(db.String(20), default="PAGADO")
     descripcion = db.Column(db.String(255))
     tipo = db.Column(db.String(5))
-
+    transaccion_id = db.Column(db.String(100), nullable=True, index=True)
 
 # ------------------- HELPERS -------------------
 
@@ -977,6 +985,208 @@ def resumen_arca_export():
             },
         )
 
+@app.route("/resumen-caja/export")
+def resumen_caja_export():
+    year = int(request.args.get("year", date.today().year))
+    month = int(request.args.get("month", 13))
+    caja_filtro = request.args.get("caja", "").strip()
+    fmt = request.args.get("format", "csv").lower()
+
+    if year == 1313 and month == 13:
+        compras_query = db.session.query(Compra)
+        ventas_query = db.session.query(Venta)
+    elif month == 13:
+        compras_query = db.session.query(Compra).filter(Compra.ym.like(f"{year}-%"))
+        ventas_query = db.session.query(Venta).filter(Venta.ym.like(f"{year}-%"))
+    elif year == 1313:
+        compras_query = db.session.query(Compra).filter(Compra.id == -1)
+        ventas_query = db.session.query(Venta).filter(Venta.id == -1)
+    else:
+        ym = f"{year:04d}-{month:02d}"
+        compras_query = db.session.query(Compra).filter(Compra.ym == ym)
+        ventas_query = db.session.query(Venta).filter(Venta.ym == ym)
+
+    if caja_filtro:
+        compras_query = compras_query.filter(Compra.origen == caja_filtro)
+        ventas_query = ventas_query.filter(Venta.destino == caja_filtro)
+
+    rows = []
+    for c in compras_query.all():
+        if not c.origen:
+            continue
+        rows.append({
+            "Caja": c.origen,
+            "Fecha": c.fecha.strftime("%Y-%m-%d"),
+            "Tipo": "COMPRA",
+            "Detalle": c.descripcion,
+            "Monto": -float(c.total_con_iva or 0.0)
+        })
+    for v in ventas_query.all():
+        if not v.destino:
+            continue
+        rows.append({
+            "Caja": v.destino,
+            "Fecha": v.fecha.strftime("%Y-%m-%d"),
+            "Tipo": "VENTA",
+            "Detalle": v.descripcion,
+            "Monto": float(v.total_con_iva or 0.0)
+        })
+
+    if fmt == "xlsx":
+        bio = io.BytesIO()
+        df = pd.DataFrame(rows)
+        with pd.ExcelWriter(bio, engine="openpyxl") as writer:
+            df.to_excel(writer, index=False, sheet_name="ResumenCaja")
+        bio.seek(0)
+        return send_file(bio, as_attachment=True, download_name="resumen_caja.xlsx",
+                         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    else:
+        sio = io.StringIO()
+        writer = csv.DictWriter(sio, fieldnames=rows[0].keys())
+        writer.writeheader()
+        writer.writerows(rows)
+        return Response(sio.getvalue(), mimetype="text/csv",
+                        headers={"Content-Disposition": "attachment; filename=resumen_caja.csv"})
+
+
+@app.route("/resumen-caja")
+def resumen_caja():
+    today = date.today()
+    year = int(request.args.get("year", today.year))
+    month = int(request.args.get("month", 13))
+    caja_filtro = request.args.get("caja", "").strip()
+    transaccion_id_filtro = request.args.get("transaccion_id", "").strip()
+
+    # Obtener todos los IDs de transacción únicos para el menú de filtro
+    compra_tids = db.session.query(Compra.transaccion_id).filter(Compra.transaccion_id.isnot(None)).distinct()
+    venta_tids = db.session.query(Venta.transaccion_id).filter(Venta.transaccion_id.isnot(None)).distinct()
+    transacciones_unicas = sorted({tid[0] for tid in compra_tids.union(venta_tids).all() if tid[0]})
+
+    if year == 1313 and month == 13:
+        compras_query = db.session.query(Compra)
+        ventas_query = db.session.query(Venta)
+    elif month == 13:
+        compras_query = db.session.query(Compra).filter(Compra.ym.like(f"{year}-%"))
+        ventas_query = db.session.query(Venta).filter(Venta.ym.like(f"{year}-%"))
+    elif year == 1313:
+        compras_query = db.session.query(Compra).filter(Compra.id == -1)
+        ventas_query = db.session.query(Venta).filter(Venta.id == -1)
+    else:
+        ym = f"{year:04d}-{month:02d}"
+        compras_query = db.session.query(Compra).filter(Compra.ym == ym)
+        ventas_query = db.session.query(Venta).filter(Venta.ym == ym)
+
+    # Aplicar filtro de transacción si se proporciona uno
+    if transaccion_id_filtro:
+        compras_query = compras_query.filter(Compra.transaccion_id == transaccion_id_filtro)
+        ventas_query = ventas_query.filter(Venta.transaccion_id == transaccion_id_filtro)
+
+    if caja_filtro:
+        compras_query = compras_query.filter(Compra.origen == caja_filtro)
+        ventas_query = ventas_query.filter(Venta.destino == caja_filtro)
+
+    resumen = {}
+    cajas = set()
+
+    for c in compras_query.all():
+        if not c.origen:
+            continue
+        cajas.add(c.origen)
+        # Se calcula el gasto real de la compra, descontando la porción del IVA que es crédito fiscal.
+        # Gasto Real = (Neto sin IVA) + (IVA no deducible)
+        # IVA no deducible = IVA Total * (1 - % Deducible)
+        
+        pesos_sin_iva = float(c.pesos_sin_iva or 0.0)
+        iva_total = float(c.iva_21 or 0.0) + float(c.iva_105 or 0.0)
+        
+        # c.iva_deducible_pct es un float (e.g., 0.5 para 50%).
+        # La lógica de importación asegura un valor. Como fallback, si es None, se asume 1.0 (100% deducible).
+        pct_deducible = float(c.iva_deducible_pct if c.iva_deducible_pct is not None else 1.0)
+        
+        iva_no_deducible = iva_total * (1 - pct_deducible)
+        monto_gasto_real = pesos_sin_iva + iva_no_deducible
+        
+        
+        resumen.setdefault(c.origen, []).append({
+            "tipo": "COMPRA",
+            "fecha": c.fecha,
+            "detalle": c.descripcion,
+            # El monto se guarda en NEGATIVO y representa el GASTO REAL (no el total pagado).
+            "monto": -monto_gasto_real,
+            "transaccion_id": c.transaccion_id,
+            "personal": c.personal
+        })
+
+
+
+    for v in ventas_query.all():
+        if not v.destino:
+            continue
+        cajas.add(v.destino)
+        # Se calcula el monto total de la venta. Si 'total_con_iva' es 0 o nulo,
+        # se calcula sumando el neto más los IVAs como fallback.
+        monto_venta = float(v.total_con_iva or (v.pesos_sin_iva or 0.0) + (v.iva_21 or 0.0) + (v.iva_105 or 0.0))
+        
+        resumen.setdefault(v.destino, []).append({
+        "tipo": "VENTA",
+        "fecha": v.fecha,
+        "detalle": v.descripcion,
+        # El monto se guarda en POSITIVO para representar un INGRESO a la caja.
+        "monto": monto_venta,
+        "transaccion_id": v.transaccion_id,
+        "personal": False
+        })
+
+
+
+# Ordenar los movimientos por transaccion_id (asc) y luego por fecha (desc)
+    for movimientos in resumen.values():
+        # 1. Sort by date descending (secondary sort)
+        movimientos.sort(key=lambda x: x["fecha"], reverse=True)
+        # 2. Sort by transaction_id ascending (primary sort). Python's sort is stable.
+        #    We use a very high unicode character for None/empty IDs to push them to the end.
+        movimientos.sort(key=lambda x: x.get("transaccion_id") or '\uffff')
+
+    # Lógica para asignar colores por transaccion_id
+    transaccion_color_map = {}
+    color_idx_counter = 0
+    all_movimientos = [mov for caja_movs in resumen.values() for mov in caja_movs]
+
+    for m in all_movimientos:
+        tid = m.get("transaccion_id")
+        # Solo asignamos un índice de color si existe un transaccion_id no vacío.
+        # De lo contrario, será None y la plantilla no aplicará color,
+        # permitiendo que funcione el estilo de filas alternas (striped).
+        if tid:
+            # Usamos la función de hash para obtener un índice de color determinista.
+            m['color_index'] = color_index(m['transaccion_id'], 8)
+        else:
+            m['color_index'] = None
+
+    totales = {
+        caja: round(sum(item["monto"] for item in resumen[caja]), 2)
+        for caja in resumen
+    }
+
+    return render_template(
+        "resumen_caja.html",
+        resumen=resumen,
+        totales=totales,
+        cajas=sorted(cajas),
+        caja_filtro=caja_filtro,
+        year=year,
+        month=month,
+        transacciones_unicas=transacciones_unicas,
+        transaccion_id=transaccion_id_filtro,
+        current_year=today.year,
+        months={
+            1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril",
+            5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto",
+            9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
+        }
+    )
+
+
 
 @app.route("/totales-arca")
 def totales_arca():
@@ -1119,17 +1329,7 @@ def resumen_socio_view():
 
     total_ventas_con_iva = float(
         ventas_query.with_entities(
-            func.coalesce(
-                func.sum(
-                    func.coalesce(
-                        func.nullif(Venta.total_con_iva, 0),
-                        (func.coalesce(Venta.pesos_sin_iva, 0.0)
-                         + func.coalesce(Venta.iva_21, 0.0)
-                         + func.coalesce(Venta.iva_105, 0.0))
-                    )
-                ),
-                0.0,
-            )
+            func.coalesce(func.sum(total_con_iva_expr(Venta)), 0.0)
         ).scalar()
         or 0.0
     )
@@ -1144,17 +1344,7 @@ def resumen_socio_view():
     # total compras: mismo tratamiento
     total_compras_con_iva = float(
         compras_query.with_entities(
-            func.coalesce(
-                func.sum(
-                    func.coalesce(
-                        func.nullif(Compra.total_con_iva, 0),
-                        (func.coalesce(Compra.pesos_sin_iva, 0.0)
-                         + func.coalesce(Compra.iva_21, 0.0)
-                         + func.coalesce(Compra.iva_105, 0.0))
-                    )
-                ),
-                0.0,
-            )
+            func.coalesce(func.sum(total_con_iva_expr(Compra)), 0.0)
         ).scalar()
         or 0.0
     )
@@ -1483,6 +1673,7 @@ def do_import_excel_from_path(path: str):
                 descripcion=str(r.get("DETALLE") or ""),
                 personal=personal,
                 iva_deducible_pct=ded_pct,
+                transaccion_id=str(r.get("transaccion_id") or "").strip()
             )
             db.session.add(cobj)
         except Exception as e:
@@ -1528,6 +1719,7 @@ def do_import_excel_from_path(path: str):
                 estado=str(r.get("ESTADO") or "PAGADO"),
                 descripcion=str(r.get("DETALLE") or ""),
                 tipo=str(r.get("TIPO") or "").upper(),
+                transaccion_id=str(r.get("transaccion_id") or "").strip()
             )
             db.session.add(vobj)
         except Exception as e:
@@ -1817,6 +2009,7 @@ def compras_list():
 
     # nuevo filtro: socio (nombre)
     socio_name = (request.args.get("socio") or "").strip()
+    estado_filtro = (request.args.get("estado") or "").strip()
     # lista de socios para el select en la plantilla
     socios = [n for (_id, n) in db.session.query(Socio.id, Socio.nombre).order_by(Socio.nombre).all()]
 
@@ -1838,6 +2031,10 @@ def compras_list():
     if socio_name:
         # join con Socio y filtrar por nombre (exact match). Cambia a .like(...) si querés búsqueda parcial.
         compras_query = compras_query.join(Socio, Compra.socio_id == Socio.id).filter(Socio.nombre == socio_name)
+
+    # aplicar filtro por estado si se pidió
+    if estado_filtro:
+        compras_query = compras_query.filter(Compra.estado == estado_filtro)
 
     export_fmt = (request.args.get("export") or "").lower()
 
@@ -1898,6 +2095,7 @@ def compras_list():
         current_year=today.year,
         socios=socios,
         selected_socio=socio_name,
+        selected_estado=estado_filtro,
     )
 
 
@@ -1939,6 +2137,7 @@ def ventas_list():
 
     # nuevo filtro: socio (nombre)
     socio_name = (request.args.get("socio") or "").strip()
+    estado_filtro = (request.args.get("estado") or "").strip()
     # lista de socios para el select en la plantilla
     socios = [n for (_id, n) in db.session.query(Socio.id, Socio.nombre).order_by(Socio.nombre).all()]
 
@@ -1959,6 +2158,10 @@ def ventas_list():
     # aplicar filtro por nombre_socio si se pidió
     if socio_name:
         ventas_query = ventas_query.join(Socio, Venta.socio_id == Socio.id).filter(Socio.nombre == socio_name)
+
+    # aplicar filtro por estado si se pidió
+    if estado_filtro:
+        ventas_query = ventas_query.filter(Venta.estado == estado_filtro)
 
     export_fmt = (request.args.get("export") or "").lower()
 
@@ -2020,6 +2223,7 @@ def ventas_list():
         current_year=today.year,
         socios=socios,
         selected_socio=socio_name,
+        selected_estado=estado_filtro,
     )
 
 

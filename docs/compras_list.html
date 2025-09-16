@@ -87,10 +87,20 @@
     </select>
   </div>
 
+  <!-- Columna estado -->
+  <div class="col-auto">
+    <label class="form-label">Estado</label>
+    <select name="estado" class="form-control form-select">
+      <option value="" {% if not selected_estado %}selected{% endif %}>Todos</option>
+      <option value="PAGADO" {% if selected_estado == 'PAGADO' %}selected{% endif %}>Pagado</option>
+      <option value="ADEUDADO" {% if selected_estado == 'ADEUDADO' %}selected{% endif %}>Adeudado</option>
+    </select>
+  </div>
+
   <!-- Botones -->
   <div class="col-auto align-self-end d-flex gap-2">
     <button class="btn btn-primary">Aplicar</button>
-    <a class="btn btn-outline-primary" href="{{ url_for('compras_list', year=year, month=month, export='csv') }}">Exportar CSV</a>
+    <a class="btn btn-outline-primary" href="{{ url_for('compras_list', year=year, month=month, socio=selected_socio, estado=selected_estado, export='csv') }}">Exportar CSV</a>
   </div>
 </form>
 
@@ -98,7 +108,9 @@
 <table class="table table-sm table-hover">
   <thead>
     <tr>
-      <th>Fecha</th><th>Proveedor</th>
+      <th>Transacción</th>
+      <th>Fecha</th>
+      <th>Proveedor</th>
       <th class="text-end">$ s/IVA</th><th class="text-end">IVA</th><th class="text-end">$ c/IVA</th>
       <th>Estado</th><th>Detalle</th>
     </tr>
@@ -106,6 +118,11 @@
   <tbody>
     {% for c in compras %}
     <tr>
+      <td>
+        {% if c.transaccion_id %}
+          <span class="badge bg-info text-dark">{{ c.transaccion_id }}</span>
+        {% endif %}
+      </td>
       <td>{{ c.fecha.strftime('%d/%m/%Y') if c.fecha else '—' }}</td>
       <td>{{ c.proveedor or '—' }}</td>
       <td class="text-end">{{ (c.pesos_sin_iva or 0) | ars }}</td>
@@ -115,7 +132,7 @@
       <td>{{ c.descripcion or '' }}</td>
     </tr>
     {% else %}
-    <tr><td colspan="7" class="text-center">No hay registros</td></tr>
+    <tr><td colspan="8" class="text-center">No hay registros</td></tr>
     {% endfor %}
   </tbody>
 </table>

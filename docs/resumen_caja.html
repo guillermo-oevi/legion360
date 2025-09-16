@@ -1,0 +1,194 @@
+
+{% extends 'base.html' %}
+{% block content %}
+
+
+
+{#
+  Plantilla: resumen_caja.html
+  Propósito: Mostrar un resumen de movimientos (ingresos/egresos) agrupados por "Caja".
+  Una "Caja" representa una cuenta o un origen/destino de fondos, como "Efectivo", "Banco", etc.
+
+  Lógica del backend (vista resumen_caja en main.py):
+  1. Lee los filtros de la URL: `year`, `month`, `caja`.
+  2. Construye consultas a la base de datos para `Compra` y `Venta` según los filtros de fecha.
+  3. Si se especifica un `caja_filtro`, filtra las compras por `origen` y las ventas por `destino`.
+  4. Crea un diccionario `resumen`:
+     - Itera sobre las compras filtradas. Cada compra con un `origen` se agrega como un movimiento de egreso (monto negativo) a la lista de la caja correspondiente (`resumen[c.origen]`).
+     - Itera sobre las ventas filtradas. Cada venta con un `destino` se agrega como un movimiento de ingreso (monto positivo) a la lista de la caja correspondiente (`resumen[v.destino]`).
+  5. Calcula `totales`, un diccionario que contiene la suma de todos los montos para cada caja.
+  6. Ordena los movimientos dentro de cada caja por fecha.
+  7. Pasa las variables `resumen`, `totales`, `cajas` (lista de nombres de cajas), y los filtros al template.
+#}
+<div class="container py-4">
+  <h2>Resumen por Caja</h2>
+  {#
+    Formulario de filtros:
+    - Envía los filtros como una petición GET a la misma URL.
+    - Los valores seleccionados se mantienen gracias a que la vista los devuelve (variables `year`, `month`, `caja_filtro`).
+  #}
+  <form class="row g-2 mb-3" method="get">
+
+    <div class="col-auto">
+      <label class="form-label">Transacción</label>
+      <select class="form-select" name="transaccion_id">
+        <option value="">Todas</option>
+        {% for t in transacciones_unicas %}
+        <option value="{{ t }}" {% if transaccion_id == t %}selected{% endif %}>{{ t }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="col-auto">
+      <label class="form-label">Año</label>
+      <select class="form-select" name="year">
+        {# Opción para ver todos los años (valor especial '1313') #}
+        <option value="1313">Todos</option>
+        {# Genera opciones para los últimos 4 años. `current_year` viene de la vista. #}
+        {% for y in range(current_year, current_year-4, -1) %}
+        <option value="{{ y }}" {% if year == y %}selected{% endif %}>{{ y }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    
+    <div class="col-auto">
+      <label class="form-label">Mes</label>
+      <select class="form-select" name="month">
+        {# Opción para ver todos los meses (valor especial '13') #}
+        <option value="13">Todos</option>
+        {# Itera del 1 al 12 para crear las opciones de meses. `months` es un dict de la vista. #}
+        {% for m in range(1, 13) %}
+        <option value="{{ m }}" {% if month|string == m|string %}selected{% endif %}>{{ months[m] }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    
+    <div class="col-auto">
+      <label class="form-label">Caja</label>
+      <select class="form-select" name="caja">
+        <option value="">Todas</option>
+        {# `cajas` es una lista de todos los nombres de caja únicos encontrados en la BD. #}
+        {% for c in cajas %}
+        <option value="{{ c }}" {% if caja_filtro == c %}selected{% endif %}>{{ c }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-auto align-self-end">
+      <button class="btn btn-outline-primary" type="submit">Aplicar</button>
+    </div>
+  </form>
+  {#
+    Bucle principal: Itera sobre el diccionario `resumen`.
+    - `caja` será el nombre de la caja (ej: "Efectivo").
+    - `movimientos` será la lista de diccionarios de movimientos para esa caja.
+  #}
+  
+
+{# Paleta intensa para la etiqueta de transacción (índices 0..7) #}
+
+{% set colores = [
+  '#FFCDD2',  
+  '#F8BBD0',  
+  '#E1BEE7',  
+  '#BBDEFB',  
+  '#B2DFDB',  
+  '#C8E6C9',  
+  '#FFF9C4',  
+  '#FFE0B2'   
+] %}
+
+
+
+{% for caja, movimientos in resumen.items() %}
+  <div class="mt-4">
+    <h4 class="mb-2">Caja: {{ caja }}</h4>
+    
+    {# Muestra el total para la caja actual, obtenido del diccionario `totales`. El filtro `ars` formatea el número como moneda. #}
+    <div>
+      <strong>Total:</strong> 
+      <span class="badge bg-success text-white" style="font-size: 1rem;">{{ totales[caja]|ars }}</span>
+    </div>
+    
+    {# Tabla que lista los movimientos individuales de la caja. #}
+    <div class="table-responsive mt-2">
+      
+      <table class="table table-sm align-middle">
+        <thead>
+          <tr>
+            <th>Transacción</th>
+            <th>Fecha</th>
+            <th>Tipo</th>
+            <th>Detalle</th>
+            <th class="text-end">Monto</th>
+          
+          </tr>
+        </thead>
+
+        <tbody>
+          {% set ns = namespace(subtotal=0, subtotal_venta=0, subtotal_compra=0, es_personal=false) %}
+          {% for m in movimientos %}
+              {#
+                Se aplica un color de fondo a toda la fila si el movimiento pertenece a una transacción.
+                - `m.color_index` se calcula en el backend (main.py) usando un hash del `transaccion_id`.
+                - Esto asegura que todos los movimientos de la misma transacción tengan el mismo color.
+                - `--bs-table-accent-bg` es una variable de Bootstrap 5 que sobreescribe el color de fondo de la fila.
+              #}
+              <tr {% if m.color_index is not none %}style="--bs-table-accent-bg: {{ colores[m.color_index] }};"{% endif %}>
+              <td>{{ m.transaccion_id or '' }}</td>
+              <td>{{ m.fecha.strftime('%d/%m/%Y') }}</td>
+              <td>{{ m.tipo }}</td> {# "COMPRA" o "VENTA" #}
+              <td>{{ m.detalle }}</td> {# Descripción de la compra/venta #}
+              <td class="text-end">{{ m.monto|ars }}</td>
+              </tr>
+
+              {% if m.transaccion_id %}
+                  {% set ns.subtotal = ns.subtotal + m.monto %}
+                  {% if m.tipo == 'VENTA' %}
+                      {% set ns.subtotal_venta = ns.subtotal_venta + m.monto %}
+                  {% elif m.tipo == 'COMPRA' %}
+                      {# El monto de la compra es negativo, usamos su valor absoluto para el costo #}
+                      {% set ns.subtotal_compra = ns.subtotal_compra + m.monto|abs %}
+                      {# Si alguna compra de la transacción es personal, marcamos el flag #}
+                      {% if m.personal %}
+                          {% set ns.es_personal = true %}
+                      {% endif %}
+                  {% endif %}
+              {% endif %}
+
+              {# Si es el final de un grupo de transacciones, mostrar el subtotal #}
+              {% set next_m = movimientos[loop.index] if not loop.last else none %}
+              {% if m.transaccion_id and (loop.last or m.transaccion_id != (next_m.transaccion_id if next_m else none)) %}
+                  {% set rentabilidad = 0 %}
+                  {% if ns.subtotal_compra > 0 %}
+                      {# Calculamos la rentabilidad como (Ganancia / Costo) * 100 #}
+                      {% set ganancia = ns.subtotal_venta - ns.subtotal_compra %}
+                      {% set rentabilidad = (ganancia / ns.subtotal_compra) * 100 %}
+                  {% endif %}
+                  <tr class="table-group-divider">
+                      <td colspan="4" class="text-end fw-bold">Subtotal Transacción:</td>
+                      <td class="text-end fw-bold">
+                        {{ ns.subtotal|ars }}
+                        <span class="ms-2 fst-italic text-muted">[{{ rentabilidad|round(2) }}%]</span>
+                        {% if ns.es_personal %}
+                          <span class="badge bg-info text-dark ms-2">Compra Personal</span>
+                        {% endif %}
+                      </td>
+                  </tr>
+                  {% set ns.subtotal, ns.subtotal_venta, ns.subtotal_compra, ns.es_personal = 0, 0, 0, false %}
+              {% endif %}
+          {% endfor %}
+        </tbody>
+
+      </table>
+      
+    </div>
+  </div>
+  {#
+    Bloque `else` del bucle `for`: se ejecuta si el diccionario `resumen` está vacío,
+    es decir, si no se encontraron movimientos que coincidan con los filtros.
+  #}
+  {% else %}
+  <div class="alert alert-warning mt-4">No hay movimientos para mostrar.</div>
+  {% endfor %}
+</div>
+{% endblock %}
