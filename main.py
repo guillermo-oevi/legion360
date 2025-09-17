@@ -302,20 +302,18 @@ def _read_param_any(keys, default=None):
     raise RuntimeError(f"Ningún parametro encontrado para claves {keys} y sin default")
 
 
-def build_resumen_socio(ym: str, socio_filtro_id: int = None):
+def build_resumen_socio(ym: str):
     """
-Construye un resumen de ventas/compras agregadas por socio para un periodo `ym`.
+    Construye un resumen de ventas/compras agregadas por socio para un periodo `ym`.
 
     Qué hace:
     - Lee parámetros de márgenes (empresa, vendedor, socio).
     - Crea consultas filtradas por `ym` (soporta 'all', 'none', 'YYYY-*' y 'YYYY-MM').
     - Genera subconsultas agregadas (ventas y compras por socio).
     - Junta con la tabla Socio para devolver lista de diccionarios con montos y márgenes.
-    - Realiza todos los cálculos (márgenes y totales de caja) en Python para garantizar consistencia.
 
     Parámetros:
     - ym: periodo string ('all', 'none', 'YYYY-*' o 'YYYY-MM').
-    - socio_filtro_id: ID de un socio para filtrar los resultados (opcional).
 
     Devuelve:
     - (filas, p_emp, p_ven, p_soc)
@@ -323,16 +321,8 @@ Construye un resumen de ventas/compras agregadas por socio para un periodo `ym`.
       - p_emp/p_ven/p_soc: valores de parámetros leídos.
 
     Quién la consume:
-    - La vista `resumen_socio_view` (resumen por socio) y su exportación.
-
-
-  Devuelve:
-    - tuple: (filas, p_emp, p_ven, p_soc, totales_dict)
-    - tuple: (filas, p_emp, p_ven, p_soc, header_totals)
-      - filas: lista de dicts para la tabla principal.
-      - p_emp, p_ven, p_soc: parámetros de margen.
-      - totales_dict: un diccionario con los totales del período para el encabezado de la página.
-      - header_totals: un diccionario con los totales del período para el encabezado de la página.
+    - resumen_socio view (resumen por socio) y su export.
+    - Usada para informes por socio y cálculo de márgenes.
     """
     # Lee parámetros (por clave) o usa fallback si no existen
     p_emp = _read_param_any(["margen_Empresa"], 0.53)
@@ -354,78 +344,59 @@ Construye un resumen de ventas/compras agregadas por socio para un periodo `ym`.
         compras_query = db.session.query(Compra).filter(Compra.ym == ym)
         ventas_query = db.session.query(Venta).filter(Venta.ym == ym)
 
-    # Aplicar filtro de socio si se proporciona
-    if socio_filtro_id:
-        compras_query = compras_query.filter(Compra.socio_id == socio_filtro_id)
-        ventas_query = ventas_query.filter(Venta.socio_id == socio_filtro_id)
+    # Subconsultas de ventas/compras por socio (usando las queries ya filtradas)
+    ventas_sub = (
+        ventas_query.with_entities(
+            Venta.socio_id.label("socio_id"),
+            func.coalesce(func.sum(Venta.pesos_sin_iva), 0.0).label("ventas_sin_iva"),
+        )
+        .group_by(Venta.socio_id)
+        .subquery()
+    )
 
-  
+    compras_sub = (
+        compras_query.with_entities(
+            Compra.socio_id.label("socio_id"),
+            func.coalesce(func.sum(Compra.pesos_sin_iva), 0.0).label("compras_sin_iva"),
+        )
+        .group_by(Compra.socio_id)
+        .subquery()
+    )
 
-    # Cargar todos los datos en listas una sola vez para evitar problemas de estado de la consulta
-    compras_list = compras_query.all()
-    ventas_list = ventas_query.all()
-    all_socios = db.session.query(Socio).all()
+    # Traer id, nombre, tipo + montos agregados
+    q = (
+        db.session.query(
+            Socio.id.label("id"),
+            Socio.nombre.label("nombre"),
+            Socio.tipo.label("tipo"),
+            func.coalesce(ventas_sub.c.ventas_sin_iva, 0.0).label("ventas_sin_iva"),
+            func.coalesce(compras_sub.c.compras_sin_iva, 0.0).label("compras_sin_iva"),
+        )
+        .outerjoin(ventas_sub, ventas_sub.c.socio_id == Socio.id)
+        .outerjoin(compras_sub, compras_sub.c.socio_id == Socio.id)
+    )
 
-    # --- 1. Calcular totales de caja POR SOCIO ---
-    socio_caja_totals = {}
-    p_norm_caja = get_param("iva_deducible_normal_pct", 1.0)
-    p_pers_def_caja = get_param("iva_deducible_personal_default_pct", 0.5)
-
-    # Iterate through all filtered purchases
-    for c in compras_list:
-        if not c.socio_id:
-            continue
-        pesos_sin_iva = float(c.pesos_sin_iva or 0.0)
-        iva_total = float(c.iva_21 or 0.0) + float(c.iva_105 or 0.0)
-        pct_deducible = float(c.iva_deducible_pct if c.iva_deducible_pct is not None else (p_pers_def_caja if c.personal else p_norm_caja))
-        iva_no_deducible = iva_total * (1 - pct_deducible)
-        monto_gasto_real = pesos_sin_iva + iva_no_deducible
-        socio_caja_totals[c.socio_id] = socio_caja_totals.get(c.socio_id, 0.0) - monto_gasto_real
-
-    # Iterate through all filtered sales
-    for v in ventas_list:
-        if not v.socio_id:
-            continue
-        monto_venta = float(v.total_con_iva or (v.pesos_sin_iva or 0.0) + (v.iva_21 or 0.0) + (v.iva_105 or 0.0))
-        socio_caja_totals[v.socio_id] = socio_caja_totals.get(v.socio_id, 0.0) + monto_venta
-
-    # --- 2. Agregar datos para márgenes por socio ---
-    socio_margin_data = {
-        s.id: {
-            "id": s.id, "nombre": s.nombre, "tipo": s.tipo,
-            "ventas_sin_iva": 0.0, "compras_sin_iva": 0.0,
-        } for s in all_socios
-    }
-
-    for v in ventas_list:
-        if v.socio_id in socio_margin_data:
-            socio_margin_data[v.socio_id]["ventas_sin_iva"] += v.pesos_sin_iva or 0.0
-
-    for c in compras_list:
-        if c.socio_id in socio_margin_data:
-            socio_margin_data[c.socio_id]["compras_sin_iva"] += c.pesos_sin_iva or 0.0
-
+    # Normalizar resultados en una lista de dicts
     socios = []
-    for s_id, data in socio_margin_data.items():
-        v = data["ventas_sin_iva"]
-        c = data["compras_sin_iva"]
-        socios.append({
-            "id": data["id"], "nombre": data["nombre"], "tipo": data["tipo"],
-            "ventas_sin_iva": v, "compras_sin_iva": c, "gn": v - c,
-        })
+    for sid, nombre, tipo, v_sin, c_sin in q.all():
+        v = float(v_sin or 0.0)
+        c = float(c_sin or 0.0)
+        gn = v - c
+        socios.append(
+            {
+                "id": sid,
+                "nombre": nombre,
+                "tipo": tipo,  # se asume Socio.tipo existe y es 'Socio' o 'Empresa'
+                "ventas_sin_iva": v,
+                "compras_sin_iva": c,
+                "gn": gn,
+            }
+        )
 
-    # --- 3. Construir las filas finales combinando márgenes y totales de caja ---
-
+    # Construcción de filas de salida + márgenes
     filas = []
     for s in socios:
         gn = s["gn"]
-        total_caja_socio = round(socio_caja_totals.get(s["id"], 0.0), 2)
-
-        # Omitir socios sin actividad de margen Y sin actividad de caja
-        if gn == 0 and total_caja_socio == 0:
-           continue
-
-
         tipo = s["tipo"]
 
         margen_empresa = round(gn * p_emp, 2)
@@ -454,89 +425,11 @@ Construye un resumen de ventas/compras agregadas por socio para un periodo `ym`.
                 "Total_Margenes": round(
                     margen_vendedor + margen_socio + margen_otros, 2
                 ),
-                               "total_caja": total_caja_socio,
- 
             }
         )
 
-    # --- 4. Calcular totales para el encabezado de la página ---
-    total_ventas_sin_iva = sum(s["ventas_sin_iva"] for s in socios)
-    total_compras_sin_iva = sum(s["compras_sin_iva"] for s in socios)
-    total_ventas_con_iva = sum(float(v.total_con_iva or ((v.pesos_sin_iva or 0.0) + (v.iva_21 or 0.0) + (v.iva_105 or 0.0))) for v in ventas_list)
-    
-    total_compras_gasto_real = 0
-    for c in compras_list:
-        pesos_sin_iva = float(c.pesos_sin_iva or 0.0)
-        iva_total = float(c.iva_21 or 0.0) + float(c.iva_105 or 0.0)
-        pct_deducible = float(c.iva_deducible_pct if c.iva_deducible_pct is not None else (p_pers_def_caja if c.personal else p_norm_caja))
-        iva_no_deducible = iva_total * (1 - pct_deducible)
-        total_compras_gasto_real += pesos_sin_iva + iva_no_deducible
+    return filas, p_emp, p_ven, p_soc
 
-    header_totals = {
-        "total_ventas_con_iva": total_ventas_con_iva,
-        "total_compras_con_iva": total_compras_gasto_real,
-        "saldo_con_iva": total_ventas_con_iva - total_compras_gasto_real,
-        "total_ventas_sin_iva": total_ventas_sin_iva,
-        "total_compras_sin_iva": total_compras_sin_iva,
-        "saldo_sin_iva": total_ventas_sin_iva - total_compras_sin_iva,
-    }
-    return filas, p_emp, p_ven, p_soc, header_totals
-
-
-def build_caja_data(compras_query, ventas_query):
-    """
-    Construye los datos de caja (`resumen` y `totales`) a partir de consultas.
-    Esta función es reutilizable por `resumen_caja` y `resumen_socio`.
-    Consume las consultas al llamar a .all().
-    """
-    resumen = {}
-    cajas = set()
-    p_norm_caja = get_param("iva_deducible_normal_pct", 1.0)
-    p_pers_def_caja = get_param("iva_deducible_personal_default_pct", 0.5)
-
-    # Totales para el encabezado de la página
-    total_compras_gasto_real = 0.0
-    total_ventas_con_iva = 0.0
-
-    compras_list = compras_query.all()
-    ventas_list = ventas_query.all()
-
-    for c in compras_list:
-        origen_limpio = (c.origen or "").strip()
-        if not origen_limpio:
-            continue
-        cajas.add(origen_limpio)
-
-        pesos_sin_iva = float(c.pesos_sin_iva or 0.0)
-        iva_total = float(c.iva_21 or 0.0) + float(c.iva_105 or 0.0)
-        pct_deducible = float(c.iva_deducible_pct if c.iva_deducible_pct is not None else (p_pers_def_caja if c.personal else p_norm_caja))
-        iva_no_deducible = iva_total * (1 - pct_deducible)
-        monto_gasto_real = pesos_sin_iva + iva_no_deducible
-        total_compras_gasto_real += monto_gasto_real
-
-        resumen.setdefault(origen_limpio, []).append({
-            "tipo": "COMPRA", "fecha": c.fecha, "detalle": c.descripcion,
-            "monto": -monto_gasto_real, "transaccion_id": c.transaccion_id, "personal": c.personal
-        })
-
-    for v in ventas_list:
-        destino_limpio = (v.destino or "").strip()
-        if not destino_limpio:
-            continue
-        cajas.add(destino_limpio)
-
-        monto_venta = float(v.total_con_iva or (v.pesos_sin_iva or 0.0) + (v.iva_21 or 0.0) + (v.iva_105 or 0.0))
-        total_ventas_con_iva += monto_venta
-
-        resumen.setdefault(destino_limpio, []).append({
-            "tipo": "VENTA", "fecha": v.fecha, "detalle": v.descripcion,
-            "monto": monto_venta, "transaccion_id": v.transaccion_id, "personal": False
-        })
-
-    totales = {caja: round(sum(item["monto"] for item in resumen.get(caja, [])), 2) for caja in cajas}
-    header_totals = {"total_compras": total_compras_gasto_real, "total_ventas": total_ventas_con_iva}
-
-    return resumen, totales, sorted(list(cajas)), header_totals
 
 # ------------------- ARCA -------------------
 
@@ -1192,9 +1085,61 @@ def resumen_caja():
         compras_query = compras_query.filter(Compra.origen == caja_filtro)
         ventas_query = ventas_query.filter(Venta.destino == caja_filtro)
 
-    # Llama a la función reutilizable para obtener los datos de caja.
-    # El cuarto valor (header_totals) no se usa en esta vista, por eso `_`.
-    resumen, totales, cajas, _ = build_caja_data(compras_query, ventas_query)
+    resumen = {}
+    cajas = set()
+
+    for c in compras_query.all():
+        if not c.origen:
+            continue
+        cajas.add(c.origen)
+        # --- CÁLCULO DE EGRESO (COMPRA) ---
+        # 1. Se toman los valores base de la compra.
+        pesos_sin_iva = float(c.pesos_sin_iva or 0.0)
+        iva_total = float(c.iva_21 or 0.0) + float(c.iva_105 or 0.0)
+        
+        # 2. Se determina el porcentaje de IVA que se puede usar como crédito fiscal.
+        #    `iva_deducible_pct` viene del Excel (ej: 0.5 para 50%). Si no está, se usan los defaults.
+        pct_deducible = float(c.iva_deducible_pct if c.iva_deducible_pct is not None else 1.0)
+        
+        # 3. Se calcula la porción del IVA que NO es crédito fiscal y, por lo tanto, es un gasto.
+        iva_no_deducible = iva_total * (1 - pct_deducible)
+
+        # 4. El "Gasto Real" es el neto más el IVA que no se recupera. Este es el dinero que efectivamente sale de la caja.
+        monto_gasto_real = pesos_sin_iva + iva_no_deducible
+        
+        
+        resumen.setdefault(c.origen, []).append({
+            "tipo": "COMPRA",
+            "fecha": c.fecha,
+            "detalle": c.descripcion,
+            # 5. El monto se guarda en NEGATIVO para representar una salida de dinero (egreso).
+            "monto": -monto_gasto_real,
+            "transaccion_id": c.transaccion_id,
+            "personal": c.personal
+        })
+
+
+
+    for v in ventas_query.all():
+        if not v.destino:
+            continue
+        cajas.add(v.destino)
+        # --- CÁLCULO DE INGRESO (VENTA) ---
+        # 1. Se toma el monto total de la factura de venta.
+        #    Si `total_con_iva` es 0 o nulo, se calcula sumando el neto más los IVAs como fallback.
+        monto_venta = float(v.total_con_iva or (v.pesos_sin_iva or 0.0) + (v.iva_21 or 0.0) + (v.iva_105 or 0.0))
+        
+        resumen.setdefault(v.destino, []).append({
+        "tipo": "VENTA",
+        "fecha": v.fecha,
+        "detalle": v.descripcion,
+        # 2. El monto se guarda en POSITIVO para representar una entrada de dinero (ingreso).
+        "monto": monto_venta,
+        "transaccion_id": v.transaccion_id,
+        "personal": False
+        })
+
+
 
 # Ordenar los movimientos por transaccion_id (asc) y luego por fecha (desc)
     for movimientos in resumen.values():
@@ -1220,6 +1165,13 @@ def resumen_caja():
         else:
             m['color_index'] = None
 
+    # --- CÁLCULO DEL TOTAL POR CAJA ---
+    # Aquí se calcula el saldo final para cada caja.
+    # Se itera sobre cada 'caja' en el diccionario 'resumen'.
+    # Para cada caja, se suman todos los valores de 'monto' de sus movimientos.
+    #   - Las ventas tienen un 'monto' positivo (ingreso).
+    #   - Las compras tienen un 'monto' negativo (egreso).
+    # El resultado es el balance neto de la caja para el período filtrado.
     totales = {
         caja: round(sum(item["monto"] for item in resumen[caja]), 2)
         for caja in resumen
@@ -1359,26 +1311,85 @@ def resumen_socio_view():
     month = int(month_arg) if month_arg is not None else 13
 
     # nuevo filtro: socio (nombre)
-    socio_name_filtro = (request.args.get("socio") or "").strip()
-    socios_list = db.session.query(Socio).order_by(Socio.nombre).all()
-    socio_id_filtro = None
-    if socio_name_filtro:
-        for s in socios_list:
-            if s.nombre == socio_name_filtro:
-                socio_id_filtro = s.id
-                break
+    socio_name = (request.args.get("socio") or "").strip()
+    socios = [n for (_id, n) in db.session.query(Socio.id, Socio.nombre).order_by(Socio.nombre).all()]
 
-    # Derivar ym para pasarlo a la función de construcción
+    # construir ventas_query según year/month (misma lógica que index/ventas/compras)
     if year == 1313 and month == 13:
+        ventas_query = db.session.query(Venta)
+        compras_query = db.session.query(Compra)
         ym = "all"
     elif month == 13:
+        ventas_query = db.session.query(Venta).filter(Venta.ym.like(f"{year}-%"))
+        compras_query = db.session.query(Compra).filter(Compra.ym.like(f"{year}-%"))
         ym = f"{year}-*"
     elif year == 1313:
+        ventas_query = db.session.query(Venta).filter(Venta.id == -1)
+        compras_query = db.session.query(Compra).filter(Compra.id == -1)
         ym = "none"
     else:
         ym = f"{year:04d}-{month:02d}"
+        ventas_query = db.session.query(Venta).filter(Venta.ym == ym)
+        compras_query = db.session.query(Compra).filter(Compra.ym == ym)
 
-    filas, p_emp, p_ven, p_soc, header_totals = build_resumen_socio(ym, socio_id_filtro)
+    # aplicar filtro por nombre_socio si se pidió
+    if socio_name:
+        ventas_query = ventas_query.join(Socio, Venta.socio_id == Socio.id).filter(Socio.nombre == socio_name)
+
+    total_ventas_con_iva = float(
+        ventas_query.with_entities(
+            func.coalesce(func.sum(total_con_iva_expr(Venta)), 0.0)
+        ).scalar()
+        or 0.0
+    )
+
+    # total ventas sin IVA (base)
+    total_ventas_sin_iva = float(
+        ventas_query.with_entities(
+            func.coalesce(func.sum(func.coalesce(Venta.pesos_sin_iva, 0.0)), 0.0)
+        ).scalar() or 0.0
+    )
+
+    # total compras: mismo tratamiento
+    total_compras_con_iva = float(
+        compras_query.with_entities(
+            func.coalesce(func.sum(total_con_iva_expr(Compra)), 0.0)
+        ).scalar()
+        or 0.0
+    )
+
+    # total compras sin IVA (base)
+    total_compras_sin_iva = float(
+        compras_query.with_entities(
+            func.coalesce(func.sum(func.coalesce(Compra.pesos_sin_iva, 0.0)), 0.0)
+        ).scalar() or 0.0
+    )
+
+    # saldos
+    saldo_con_iva = total_ventas_con_iva - total_compras_con_iva
+    saldo_sin_iva = total_ventas_sin_iva - total_compras_sin_iva
+
+    # IVA explicit (opcional)
+    total_ventas_iva_amt = total_ventas_con_iva - total_ventas_sin_iva
+    total_compras_iva_amt = total_compras_con_iva - total_compras_sin_iva
+
+    # Saldo del IVA (ventas IVA - compras IVA)
+    total_iva_saldo = total_ventas_iva_amt - total_compras_iva_amt
+
+    # debug
+    try:
+        app.logger.debug(
+            "Resumen Socio - ym=%s ventas_total=%s compras_total=%s ventas_sin_iva=%s compras_sin_iva=%s",
+            ym,
+            total_ventas_con_iva,
+            total_compras_con_iva,
+            total_ventas_sin_iva,
+            total_compras_sin_iva,
+        )
+    except Exception:
+        pass
+
+    filas, p_emp, p_ven, p_soc = build_resumen_socio(ym)
     return render_template(
         "resumen_socio.html",
         filas=filas,
@@ -1390,9 +1401,15 @@ def resumen_socio_view():
         year=year,
         month=month,
         current_year=today.year,
-        totales=header_totals,
-        socios=[s.nombre for s in socios_list],
-        selected_socio=socio_name_filtro,
+        total_ventas_con_iva=total_ventas_con_iva,
+        total_compras_con_iva=total_compras_con_iva,
+        saldo_con_iva=saldo_con_iva,
+        total_ventas_sin_iva=total_ventas_sin_iva,
+        total_compras_sin_iva=total_compras_sin_iva,
+        saldo_sin_iva=saldo_sin_iva,
+        total_ventas_iva_amt=total_ventas_iva_amt,
+        total_compras_iva_amt=total_compras_iva_amt,
+        total_iva_saldo=total_iva_saldo,
     )
 
 
@@ -1430,7 +1447,7 @@ def resumen_socio_export():
     if not ym:
         return Response("No hay datos para exportar", status=400)
 
-    filas, p_emp, p_ven, p_soc, _ = build_resumen_socio(ym) # El filtro de socio no se aplica en exportación por simplicidad
+    filas, p_emp, p_ven, p_soc = build_resumen_socio(ym)
 
     if fmt == "xlsx":
         if pd is None:
@@ -1473,6 +1490,11 @@ def resumen_socio_export():
             mimetype="text/csv",
             headers={"Content-Disposition": f"attachment; filename=resumen_socio_{ym}.csv"},
         )
+
+
+# ------------------- Importación -------------------
+
+
 def do_import_excel_from_path(path: str):
     """
     Procesa un archivo Excel (ruta local) y lo importa a la base de datos.

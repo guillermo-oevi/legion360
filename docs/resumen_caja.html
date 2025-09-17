@@ -1,28 +1,25 @@
+
 {% extends 'base.html' %}
 {% block content %}
 
+
+
 {#
-  ================================================================================================
-  ¿CÓMO CONSUME LOS DATOS ESTA PLANTILLA?
-  ================================================================================================
-  Esta plantilla es "pasiva". No consulta la base de datos directamente.
-  La función `resumen_caja()` en `main.py` es la que hace todo el trabajo:
-  
-  1. CONSULTA LA BASE DE DATOS: Filtra las tablas `Compra` y `Venta` según los parámetros de la URL (año, mes, etc.).
-  
-  2. PROCESA Y ESTRUCTURA LOS DATOS: Crea dos variables principales en Python:
-     - `resumen`: Un diccionario donde cada clave es el nombre de una "Caja" (ej: "Efectivo") y su valor es una LISTA de movimientos.
-                  Cada movimiento es, a su vez, otro diccionario con datos como `fecha`, `tipo`, `monto`, etc.
-     - `totales`: Un diccionario simple donde cada clave es el nombre de una "Caja" y su valor es la SUMA TOTAL de sus movimientos.
-  
-  3. ENVÍA LOS DATOS A LA PLANTILLA: Al final, la función de Python llama a `render_template()` y le pasa estas variables:
-     `render_template("resumen_caja.html", resumen=resumen, totales=totales, ...)`
-     
-  4. LA PLANTILLA "CONSUME" LOS DATOS: A continuación, verás cómo el código HTML usa bucles `{% for ... %}` para leer
-     y mostrar el contenido de las variables `resumen` y `totales` que recibió.
-  ================================================================================================
+  Plantilla: resumen_caja.html
+  Propósito: Mostrar un resumen de movimientos (ingresos/egresos) agrupados por "Caja".
+  Una "Caja" representa una cuenta o un origen/destino de fondos, como "Efectivo", "Banco", etc.
+
+  Lógica del backend (vista resumen_caja en main.py):
+  1. Lee los filtros de la URL: `year`, `month`, `caja`.
+  2. Construye consultas a la base de datos para `Compra` y `Venta` según los filtros de fecha.
+  3. Si se especifica un `caja_filtro`, filtra las compras por `origen` y las ventas por `destino`.
+  4. Crea un diccionario `resumen`:
+     - Itera sobre las compras filtradas. Cada compra con un `origen` se agrega como un movimiento de egreso (monto negativo) a la lista de la caja correspondiente (`resumen[c.origen]`).
+     - Itera sobre las ventas filtradas. Cada venta con un `destino` se agrega como un movimiento de ingreso (monto positivo) a la lista de la caja correspondiente (`resumen[v.destino]`).
+  5. Calcula `totales`, un diccionario que contiene la suma de todos los montos para cada caja.
+  6. Ordena los movimientos dentro de cada caja por fecha.
+  7. Pasa las variables `resumen`, `totales`, `cajas` (lista de nombres de cajas), y los filtros al template.
 #}
-  
 <div class="container py-4">
   <h2>Resumen por Caja</h2>
   {#
@@ -80,12 +77,10 @@
       <button class="btn btn-outline-primary" type="submit">Aplicar</button>
     </div>
   </form>
-  {# ======================================================================= #}
-  {# PUNTO DE CONSUMO 1: Bucle principal sobre la variable `resumen`         #}
-  {# ======================================================================= #}
-  {# Aquí se itera sobre el diccionario `resumen` que envió el backend.
-     - `caja` tomará el valor de cada clave (ej: "Efectivo", "LEGION").
-     - `movimientos` tomará el valor de la lista de movimientos para esa caja.
+  {#
+    Bucle principal: Itera sobre el diccionario `resumen`.
+    - `caja` será el nombre de la caja (ej: "Efectivo").
+    - `movimientos` será la lista de diccionarios de movimientos para esa caja.
   #}
   
 
@@ -108,12 +103,7 @@
   <div class="mt-4">
     <h4 class="mb-2">Caja: {{ caja }}</h4>
     
-    {# ======================================================================= #}
-    {# PUNTO DE CONSUMO 2: Lectura de la variable `totales`                  #}
-    {# ======================================================================= #}
-    {# Aquí se accede al diccionario `totales` usando la `caja` actual como clave
-       para obtener y mostrar el total de ese grupo.
-    #}
+    {# Muestra el total para la caja actual, obtenido del diccionario `totales`. El filtro `ars` formatea el número como moneda. #}
     <div>
       <strong>Total:</strong> 
       <span class="badge bg-success text-white" style="font-size: 1rem;">{{ totales[caja]|ars }}</span>
@@ -135,14 +125,6 @@
         </thead>
 
         <tbody>
-          {# ======================================================================= #}
-          {# PUNTO DE CONSUMO 3: Bucle anidado sobre la lista `movimientos`      #}
-          {# ======================================================================= #}
-          {# Aquí se itera sobre la lista de movimientos de la caja actual.
-             - `m` será cada uno de los diccionarios de movimiento que el backend preparó.
-             - Luego se accede a sus claves (`m.transaccion_id`, `m.fecha`, `m.monto`, etc.)
-               para mostrar los datos en las celdas de la tabla.
-          #}
           {% set ns = namespace(subtotal=0, subtotal_venta=0, subtotal_compra=0, es_personal=false) %}
           {% for m in movimientos %}
               {#
@@ -160,13 +142,14 @@
               </tr>
 
               {% if m.transaccion_id %}
+                  {# --- CÁLCULO DEL SUBTOTAL POR TRANSACCIÓN --- #}
+                  {# 1. Se acumula el 'monto' de cada movimiento (positivo para ventas, negativo para compras) en la variable `ns.subtotal`. #}
                   {% set ns.subtotal = ns.subtotal + m.monto %}
                   {% if m.tipo == 'VENTA' %}
                       {% set ns.subtotal_venta = ns.subtotal_venta + m.monto %}
                   {% elif m.tipo == 'COMPRA' %}
-                      {# El monto de la compra es negativo, usamos su valor absoluto para el costo #}
+                      {# 2. Para el cálculo de rentabilidad, se acumula el costo total (valor absoluto de las compras). #}
                       {% set ns.subtotal_compra = ns.subtotal_compra + m.monto|abs %}
-                      {# Si alguna compra de la transacción es personal, marcamos el flag #}
                       {% if m.personal %}
                           {% set ns.es_personal = true %}
                       {% endif %}
@@ -178,14 +161,16 @@
               {% if m.transaccion_id and (loop.last or m.transaccion_id != (next_m.transaccion_id if next_m else none)) %}
                   {% set rentabilidad = 0 %}
                   {% if ns.subtotal_compra > 0 %}
-                      {# Calculamos la rentabilidad como (Ganancia / Costo) * 100 #}
+                      {# --- CÁLCULO DE RENTABILIDAD POR TRANSACCIÓN --- #}
+                      {# 1. Ganancia = Total Ingresos (ventas) - Total Costos (compras). #}
                       {% set ganancia = ns.subtotal_venta - ns.subtotal_compra %}
+                      {# 2. Rentabilidad = (Ganancia / Costo Total) * 100. #}
                       {% set rentabilidad = (ganancia / ns.subtotal_compra) * 100 %}
                   {% endif %}
                   <tr class="table-group-divider">
                       <td colspan="4" class="text-end fw-bold">Subtotal Transacción:</td>
                       <td class="text-end fw-bold">
-                        {{ ns.subtotal|ars }}
+                        {{ ns.subtotal|ars }} {# Muestra el subtotal neto de la transacción. #}
                         <span class="ms-2 fst-italic text-muted">[{{ rentabilidad|round(2) }}%]</span>
                         {% if ns.es_personal %}
                           <span class="badge bg-info text-dark ms-2">Compra Personal</span>
