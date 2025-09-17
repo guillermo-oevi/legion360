@@ -344,6 +344,40 @@ def build_resumen_socio(ym: str):
         compras_query = db.session.query(Compra).filter(Compra.ym == ym)
         ventas_query = db.session.query(Venta).filter(Venta.ym == ym)
 
+    # --- INICIO: CÁLCULO DE TOTALES POR CAJA ---
+    # Se calcula el saldo de cada caja para el período filtrado.
+    # Esta lógica es similar a la de `resumen_caja`.
+    resumen_caja_temp = {}
+    # Se usa la misma lógica de `resumen_caja` para calcular el egreso real.
+    for c in compras_query.all():
+        if not c.origen:
+            continue
+        # --- CÁLCULO DE EGRESO (COMPRA) ---
+        pesos_sin_iva = float(c.pesos_sin_iva or 0.0)
+        iva_total = float(c.iva_21 or 0.0) + float(c.iva_105 or 0.0)
+        pct_deducible = float(c.iva_deducible_pct if c.iva_deducible_pct is not None else 1.0)
+        iva_no_deducible = iva_total * (1 - pct_deducible)
+        # El Gasto Real es el neto más el IVA que no se recupera.
+        monto_gasto_real = pesos_sin_iva + iva_no_deducible
+        # Se guarda como un monto negativo (egreso).
+        resumen_caja_temp.setdefault(c.origen, []).append({"monto": -monto_gasto_real})
+
+    # Se usa la misma lógica de `resumen_caja` para calcular el ingreso.
+    for v in ventas_query.all():
+        if not v.destino:
+            continue
+        # --- CÁLCULO DE INGRESO (VENTA) ---
+        # El monto de ingreso es el total de la factura.
+        monto_venta = float(v.total_con_iva or (v.pesos_sin_iva or 0.0) + (v.iva_21 or 0.0) + (v.iva_105 or 0.0))
+        # Se guarda como un monto positivo (ingreso).
+        resumen_caja_temp.setdefault(v.destino, []).append({"monto": monto_venta})
+
+    totales_caja = {
+        caja: round(sum(item["monto"] for item in movimientos), 2)
+        for caja, movimientos in resumen_caja_temp.items()
+    }
+    # --- FIN: CÁLCULO DE TOTALES POR CAJA ---
+
     # Subconsultas de ventas/compras por socio (usando las queries ya filtradas)
     ventas_sub = (
         ventas_query.with_entities(
@@ -425,6 +459,8 @@ def build_resumen_socio(ym: str):
                 "Total_Margenes": round(
                     margen_vendedor + margen_socio + margen_otros, 2
                 ),
+                # Se busca el total de la caja que tiene el mismo nombre que el socio. Si no existe, es 0.
+                "Total_Caja": totales_caja.get(s["nombre"], 0.0),
             }
         )
 
@@ -1479,6 +1515,7 @@ def resumen_socio_export():
                     "Margen_Socio",
                     "Margen_Otros_Socios",
                     "Total_Margenes",
+                    "Total_Caja",
                 ]
             ),
         )

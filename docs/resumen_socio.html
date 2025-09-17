@@ -215,6 +215,7 @@
           <th style="text-align: right;">Margen Socios</th>
           <th style="text-align: right;">Margen Otros Socios</th>
           <th style="text-align: right;">Total Márgenes</th>
+          <th style="text-align: right;">Total Caja Socio</th>
         </tr>
       </thead>
       <tbody>
@@ -227,6 +228,7 @@
           <td class="text-end">{{ r.Margen_Socios | ars }}</td>
           <td class="text-end">{{ r.Margen_Otros_Socios | ars }}</td>
           <td class="text-end"><span class="badge bg-warning text-dark" style="font-size: 1rem;">{{ r.Total_Margenes | ars }}</span></td>
+          <td class="text-end"><span class="badge bg-info text-dark" style="font-size: 1rem;">{{ r.Total_Caja | ars }}</span></td>
         </tr>
         {% else %}
         <tr><td colspan="7" class="text-center">No hay registros</td></tr>
