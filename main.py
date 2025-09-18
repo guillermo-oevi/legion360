@@ -447,20 +447,31 @@ def build_resumen_socio(ym: str):
             elif tipo == "Empresa" and o["tipo"] == "Socio":
                 margen_otros += round(o["gn"] * p_emp, 2)
 
+        total_margenes = round(margen_vendedor + margen_socio + margen_otros, 2)
+        total_caja = totales_caja.get(s["nombre"], 0.0)
+        socio_nombre = s["nombre"]
+
+        resto_calculado = 0.0
+        if socio_nombre != "Legion":
+            # Para socios que no son "Legion", si la caja es negativa, se usa su valor absoluto para el cálculo.
+            caja_para_calculo = abs(total_caja)
+            resto_calculado = round(caja_para_calculo - total_margenes, 2)
+        else:
+            # Para "Legion", se mantiene la lógica original.
+            resto_calculado = round(total_caja - total_margenes, 2)
+
         filas.append(
             {
                 "YM": ym,
-                "nombre_socio": s["nombre"],
+                "nombre_socio": socio_nombre,
                 "Ganancia_neta": round(gn, 2),
                 "Margen_Empresa": margen_empresa,
                 "Margen_Vendedor": margen_vendedor,
                 "Margen_Socios": margen_socio,
                 "Margen_Otros_Socios": round(margen_otros, 2),
-                "Total_Margenes": round(
-                    margen_vendedor + margen_socio + margen_otros, 2
-                ),
-                # Se busca el total de la caja que tiene el mismo nombre que el socio. Si no existe, es 0.
-                "Total_Caja": totales_caja.get(s["nombre"], 0.0),
+                "Total_Margenes": total_margenes,
+                "Total_Caja": total_caja,
+                "Resto": resto_calculado,
             }
         )
 
@@ -1516,6 +1527,7 @@ def resumen_socio_export():
                     "Margen_Otros_Socios",
                     "Total_Margenes",
                     "Total_Caja",
+                    "Resto",
                 ]
             ),
         )
@@ -2082,6 +2094,14 @@ def compras_list():
     if estado_filtro:
         compras_query = compras_query.filter(Compra.estado == estado_filtro)
 
+    # Calcular el total con IVA para el período filtrado
+    total_compras_con_iva = float(
+        compras_query.with_entities(
+            func.coalesce(func.sum(total_con_iva_expr(Compra)), 0.0)
+        ).scalar()
+        or 0.0
+    )
+
     export_fmt = (request.args.get("export") or "").lower()
 
     if export_fmt:
@@ -2133,9 +2153,16 @@ def compras_list():
 
     # vista HTML normal: pasar year/month al template para que los selects funcionen
     compras = compras_query.order_by(Compra.fecha.desc()).limit(300).all()
+    # Añadir color_index para el coloreado de transacciones
+    for c in compras:
+        if c.transaccion_id:
+            c.color_index = color_index(c.transaccion_id, 8)
+        else:
+            c.color_index = None
     return render_template(
         "compras_list.html",
         compras=compras,
+        total_compras_con_iva=total_compras_con_iva,
         year=year,
         month=month,
         current_year=today.year,
@@ -2209,6 +2236,14 @@ def ventas_list():
     if estado_filtro:
         ventas_query = ventas_query.filter(Venta.estado == estado_filtro)
 
+    # Calcular el total con IVA para el período filtrado
+    total_ventas_con_iva = float(
+        ventas_query.with_entities(
+            func.coalesce(func.sum(total_con_iva_expr(Venta)), 0.0)
+        ).scalar()
+        or 0.0
+    )
+
     export_fmt = (request.args.get("export") or "").lower()
 
     if export_fmt:
@@ -2261,9 +2296,16 @@ def ventas_list():
 
     # vista HTML normal: pasar year/month al template para que los selects funcionen
     ventas = ventas_query.order_by(Venta.fecha.desc()).limit(300).all()
+    # Añadir color_index para el coloreado de transacciones
+    for v in ventas:
+        if v.transaccion_id:
+            v.color_index = color_index(v.transaccion_id, 8)
+        else:
+            v.color_index = None
     return render_template(
         "ventas_list.html",
         ventas=ventas,
+        total_ventas_con_iva=total_ventas_con_iva,
         year=year,
         month=month,
         current_year=today.year,

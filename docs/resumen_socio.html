@@ -216,6 +216,7 @@
           <th style="text-align: right;">Margen Otros Socios</th>
           <th style="text-align: right;">Total Márgenes</th>
           <th style="text-align: right;">Total Caja Socio</th>
+          <th style="text-align: center;">Resto</th>
         </tr>
       </thead>
       <tbody>
@@ -229,9 +230,25 @@
           <td class="text-end">{{ r.Margen_Otros_Socios | ars }}</td>
           <td class="text-end"><span class="badge bg-warning text-dark" style="font-size: 1rem;">{{ r.Total_Margenes | ars }}</span></td>
           <td class="text-end"><span class="badge bg-info text-dark" style="font-size: 1rem;">{{ r.Total_Caja | ars }}</span></td>
+          <td class="text-end">
+            {% if r.nombre_socio != 'Legion' %}
+              {% if r.Resto < 0 %}
+                {# Si el Resto calculado es negativo, se muestra como positivo en verde #}
+                <span class="badge bg-success text-white" style="font-size: 1rem;">{{ (r.Resto * -1) | ars }}</span>
+              {% else %}
+                {# Si el Resto calculado es positivo o cero, se muestra como negativo en rojo #}
+                <span class="badge bg-danger text-white" style="font-size: 1rem;">{{ (r.Resto * -1) | ars }}</span>
+              {% endif %}
+            {% else %}
+              {# Para 'Legion', se muestra el valor real. Verde si es >= 0, rojo si es < 0 #}
+              <span class="badge {% if r.Resto >= 0 %}bg-success{% else %}bg-danger{% endif %} text-white" style="font-size: 1rem;">
+                {{ r.Resto | ars }}
+              </span>
+            {% endif %}
+          </td>
         </tr>
         {% else %}
-        <tr><td colspan="7" class="text-center">No hay registros</td></tr>
+        <tr><td colspan="9" class="text-center">No hay registros</td></tr>
         {% endfor %}
       </tbody>
     </table>

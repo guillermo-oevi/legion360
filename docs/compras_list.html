@@ -40,14 +40,21 @@
 
     <h2 class="me-3 mb-0"></h2>
     <span class="badge bg-warning text-dark" style="font-size: 1rem;">{{ subtitle }}</span>
+         <span class="badge bg-primary text-white" style="font-size: 1rem;">
+      {{ (total_compras_con_iva or 0.0) | ars }}
+    </span>
+    <label>(c/IVA)</label>
+ 
     
   </div>
+
+ 
 
 <!-- Formulario de filtro por año/mes -->
 <form class="row g-2 mb-3" method="get" action="{{ url_for('compras_list') }}">
   <!-- Columna año -->
   <div class="col-auto">
-    <label class="form-label">Año</label>
+    <strong class="form-label" style="text-align: center; display: block;">Año</strong>
     <select name="year" class="form-control form-select">
       <option value="1313" {% if request.args.get('year') is not none and (request.args.get('year')|int) == 1313 %}selected{% endif %}>Todos</option>
       {% for y in range(current_year, current_year-4, -1) %}
@@ -58,7 +65,7 @@
 
   <!-- Columna mes -->
   <div class="col-auto">
-    <label class="form-label">Mes</label>
+    <strong class="form-label" style="text-align: center; display: block;">Mes</strong>
     <select name="month" class="form-control form-select">
       <option value="13" {% if (month|string) == '13' %}selected{% endif %}>Todos</option>
       <option value="1"  {% if (month|string) == '1'  %}selected{% endif %}>Enero</option>
@@ -78,7 +85,7 @@
 
   <!-- Columna socio -->
   <div class="col-auto">
-    <label class="form-label">Socio</label>
+    <strong class="form-label" style="text-align: center; display: block;">Socio</strong>
     <select name="socio" class="form-control form-select">
       <option value="" {% if not selected_socio %}selected{% endif %}>Todos</option>
       {% for s in socios %}
@@ -89,7 +96,7 @@
 
   <!-- Columna estado -->
   <div class="col-auto">
-    <label class="form-label">Estado</label>
+    <strong class="form-label" style="text-align: center; display: block;">Estado</strong>
     <select name="estado" class="form-control form-select">
       <option value="" {% if not selected_estado %}selected{% endif %}>Todos</option>
       <option value="PAGADO" {% if selected_estado == 'PAGADO' %}selected{% endif %}>Pagado</option>
@@ -116,11 +123,21 @@
     </tr>
   </thead>
   <tbody>
+    {% set colores = [
+      '#FFCDD2',  
+      '#F8BBD0',  
+      '#E1BEE7',  
+      '#BBDEFB',  
+      '#B2DFDB',  
+      '#C8E6C9',  
+      '#FFF9C4',  
+      '#FFE0B2'   
+    ] %}
     {% for c in compras %}
     <tr>
       <td>
         {% if c.transaccion_id %}
-          <span class="badge bg-info text-dark">{{ c.transaccion_id }}</span>
+          <span class="badge text-dark" style="background-color: {{ colores[c.color_index] }};">{{ c.transaccion_id }}</span>
         {% endif %}
       </td>
       <td>{{ c.fecha.strftime('%d/%m/%Y') if c.fecha else '—' }}</td>
