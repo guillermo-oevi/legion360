@@ -1,6 +1,7 @@
 # migrate_add_tipo.py
 # Uso:
-#   python migrate_add_tipo.py              # usa ./app.db
+#   python migrate_add_tipo.py              
+#   usa ./app.db
 #   python migrate_add_tipo.py C:\ruta\app.db
 #   python migrate_add_tipo.py /ruta/app.db
 
@@ -8,7 +9,8 @@ import sqlite3, os, sys, shutil
 from datetime import datetime
 
 def main():
-    db_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app.db')
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    db_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(project_root, 'app.db')
 
     if not os.path.exists(db_path):
         print(f'[ERROR] No existe el archivo de base de datos: {db_path}')
