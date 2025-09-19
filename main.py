@@ -331,25 +331,25 @@ def build_resumen_socio(ym: str):
 
     # Construir ventas_query / compras_query según el valor de ym
     if ym == "all":
-        compras_query = db.session.query(Compra)
-        ventas_query = db.session.query(Venta)
+        base_compras_query = db.session.query(Compra)
+        base_ventas_query = db.session.query(Venta)
     elif ym == "none" or not ym:
-        compras_query = db.session.query(Compra).filter(Compra.id == -1)
-        ventas_query = db.session.query(Venta).filter(Venta.id == -1)
+        base_compras_query = db.session.query(Compra).filter(Compra.id == -1)
+        base_ventas_query = db.session.query(Venta).filter(Venta.id == -1)
     elif isinstance(ym, str) and ym.endswith("-*"):
         year_prefix = ym[:-2]  # "2025-*"[0:-2] => "2025"
-        compras_query = db.session.query(Compra).filter(Compra.ym.like(f"{year_prefix}-%"))
-        ventas_query = db.session.query(Venta).filter(Venta.ym.like(f"{year_prefix}-%"))
+        base_compras_query = db.session.query(Compra).filter(Compra.ym.like(f"{year_prefix}-%"))
+        base_ventas_query = db.session.query(Venta).filter(Venta.ym.like(f"{year_prefix}-%"))
     else:
-        compras_query = db.session.query(Compra).filter(Compra.ym == ym)
-        ventas_query = db.session.query(Venta).filter(Venta.ym == ym)
+        base_compras_query = db.session.query(Compra).filter(Compra.ym == ym)
+        base_ventas_query = db.session.query(Venta).filter(Venta.ym == ym)
 
-    # --- INICIO: CÁLCULO DE TOTALES POR CAJA ---
+    # --- INICIO: CÁLCULO DE TOTALES POR CAJA (INCLUYE TODOS LOS TIPOS) ---
     # Se calcula el saldo de cada caja para el período filtrado.
     # Esta lógica es similar a la de `resumen_caja`.
     resumen_caja_temp = {}
     # Se usa la misma lógica de `resumen_caja` para calcular el egreso real.
-    for c in compras_query.all():
+    for c in base_compras_query.all():
         if not c.origen:
             continue
         # --- CÁLCULO DE EGRESO (COMPRA) ---
@@ -363,7 +363,7 @@ def build_resumen_socio(ym: str):
         resumen_caja_temp.setdefault(c.origen, []).append({"monto": -monto_gasto_real})
 
     # Se usa la misma lógica de `resumen_caja` para calcular el ingreso.
-    for v in ventas_query.all():
+    for v in base_ventas_query.all():
         if not v.destino:
             continue
         # --- CÁLCULO DE INGRESO (VENTA) ---
@@ -377,6 +377,10 @@ def build_resumen_socio(ym: str):
         for caja, movimientos in resumen_caja_temp.items()
     }
     # --- FIN: CÁLCULO DE TOTALES POR CAJA ---
+
+    # Ahora, filtramos para excluir el tipo 'X' para los cálculos de Ganancia Neta y márgenes.
+    compras_query = base_compras_query.filter(Compra.tipo != 'X')
+    ventas_query = base_ventas_query.filter(Venta.tipo != 'X')
 
     # Subconsultas de ventas/compras por socio (usando las queries ya filtradas)
     ventas_sub = (
@@ -2094,6 +2098,27 @@ def compras_list():
     if estado_filtro:
         compras_query = compras_query.filter(Compra.estado == estado_filtro)
 
+    # Lógica de ordenamiento
+    sort_by = request.args.get("sort_by", "fecha")
+    sort_dir = request.args.get("sort_dir", "desc")
+
+    sortable_columns = {
+        "transaccion_id": Compra.transaccion_id,
+        "fecha": Compra.fecha,
+        "proveedor": Compra.proveedor,
+        "pesos_sin_iva": Compra.pesos_sin_iva,
+        "total_con_iva": total_con_iva_expr(Compra),
+        "estado": Compra.estado,
+    }
+    
+    sort_column = sortable_columns.get(sort_by)
+    if sort_column is not None:
+        # Aplica .asc() o .desc() dinámicamente
+        compras_query = compras_query.order_by(getattr(sort_column, sort_dir)())
+    else:
+        compras_query = compras_query.order_by(Compra.fecha.desc())
+        sort_by, sort_dir = "fecha", "desc"
+
     # Calcular el total con IVA para el período filtrado
     total_compras_con_iva = float(
         compras_query.with_entities(
@@ -2107,7 +2132,7 @@ def compras_list():
     if export_fmt:
         # preparar filas para export (lista de dicts)
         rows = []
-        compras_iter = compras_query.order_by(Compra.fecha.desc()).all()
+        compras_iter = compras_query.all()
         socios_map = {sid: nom for sid, nom in db.session.query(Socio.id, Socio.nombre).all()}
         for c in compras_iter:
             rows.append(
@@ -2152,7 +2177,7 @@ def compras_list():
             )
 
     # vista HTML normal: pasar year/month al template para que los selects funcionen
-    compras = compras_query.order_by(Compra.fecha.desc()).limit(300).all()
+    compras = compras_query.limit(300).all()
     # Añadir color_index para el coloreado de transacciones
     for c in compras:
         if c.transaccion_id:
@@ -2169,6 +2194,8 @@ def compras_list():
         socios=socios,
         selected_socio=socio_name,
         selected_estado=estado_filtro,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
     )
 
 
@@ -2236,6 +2263,27 @@ def ventas_list():
     if estado_filtro:
         ventas_query = ventas_query.filter(Venta.estado == estado_filtro)
 
+    # Lógica de ordenamiento
+    sort_by = request.args.get("sort_by", "fecha")
+    sort_dir = request.args.get("sort_dir", "desc")
+
+    sortable_columns = {
+        "transaccion_id": Venta.transaccion_id,
+        "fecha": Venta.fecha,
+        "cliente": Venta.cliente,
+        "pesos_sin_iva": Venta.pesos_sin_iva,
+        "total_con_iva": total_con_iva_expr(Venta),
+        "estado": Venta.estado,
+    }
+    
+    sort_column = sortable_columns.get(sort_by)
+    if sort_column is not None:
+        # Aplica .asc() o .desc() dinámicamente
+        ventas_query = ventas_query.order_by(getattr(sort_column, sort_dir)())
+    else:
+        ventas_query = ventas_query.order_by(Venta.fecha.desc())
+        sort_by, sort_dir = "fecha", "desc"
+
     # Calcular el total con IVA para el período filtrado
     total_ventas_con_iva = float(
         ventas_query.with_entities(
@@ -2249,7 +2297,7 @@ def ventas_list():
     if export_fmt:
         # preparar filas para export (lista de dicts)
         rows = []
-        ventas_iter = ventas_query.order_by(Venta.fecha.desc()).all()
+        ventas_iter = ventas_query.all()
         socios_map = {sid: nom for sid, nom in db.session.query(Socio.id, Socio.nombre).all()}
         for v in ventas_iter:
             rows.append(
@@ -2295,7 +2343,7 @@ def ventas_list():
             )
 
     # vista HTML normal: pasar year/month al template para que los selects funcionen
-    ventas = ventas_query.order_by(Venta.fecha.desc()).limit(300).all()
+    ventas = ventas_query.limit(300).all()
     # Añadir color_index para el coloreado de transacciones
     for v in ventas:
         if v.transaccion_id:
@@ -2312,6 +2360,8 @@ def ventas_list():
         socios=socios,
         selected_socio=socio_name,
         selected_estado=estado_filtro,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
     )
 
 

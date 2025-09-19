@@ -106,11 +106,39 @@
 <table class="table table-sm table-hover">
   <thead>
     <tr>
-      <th>Transacción</th>
-      <th>Fecha</th>
-      <th>Cliente</th>
-      <th class="text-end">$ s/IVA</th><th class="text-end">IVA</th><th class="text-end">$ c/IVA</th>
-      <th>Estado</th><th>Detalle</th>
+      <th scope="col">
+        <a href="{{ url_for('ventas_list', year=year, month=month, socio=selected_socio, estado=selected_estado, sort_by='transaccion_id', sort_dir=next_sort_dir if sort_by == 'transaccion_id' else 'asc') }}" class="text-decoration-none text-dark fw-bold">
+          Transacción {% if sort_by == 'transaccion_id' %}{{ '▼' if sort_dir == 'desc' else '▲' }}{% endif %}
+        </a>
+      </th>
+      {% set next_sort_dir = 'asc' if sort_dir == 'desc' else 'desc' %}
+      <th scope="col">
+        <a href="{{ url_for('ventas_list', year=year, month=month, socio=selected_socio, estado=selected_estado, sort_by='fecha', sort_dir=next_sort_dir if sort_by == 'fecha' else 'asc') }}" class="text-decoration-none text-dark fw-bold">
+          Fecha {% if sort_by == 'fecha' %}{{ '▼' if sort_dir == 'desc' else '▲' }}{% endif %}
+        </a>
+      </th>
+      <th scope="col">
+        <a href="{{ url_for('ventas_list', year=year, month=month, socio=selected_socio, estado=selected_estado, sort_by='cliente', sort_dir=next_sort_dir if sort_by == 'cliente' else 'asc') }}" class="text-decoration-none text-dark fw-bold">
+          Cliente {% if sort_by == 'cliente' %}{{ '▼' if sort_dir == 'desc' else '▲' }}{% endif %}
+        </a>
+      </th>
+      <th scope="col" class="text-end">
+        <a href="{{ url_for('ventas_list', year=year, month=month, socio=selected_socio, estado=selected_estado, sort_by='pesos_sin_iva', sort_dir=next_sort_dir if sort_by == 'pesos_sin_iva' else 'asc') }}" class="text-decoration-none text-dark fw-bold">
+          $ s/IVA {% if sort_by == 'pesos_sin_iva' %}{{ '▼' if sort_dir == 'desc' else '▲' }}{% endif %}
+        </a>
+      </th>
+      <th scope="col" class="text-end">IVA</th>
+      <th scope="col" class="text-end">
+        <a href="{{ url_for('ventas_list', year=year, month=month, socio=selected_socio, estado=selected_estado, sort_by='total_con_iva', sort_dir=next_sort_dir if sort_by == 'total_con_iva' else 'asc') }}" class="text-decoration-none text-dark fw-bold">
+          $ c/IVA {% if sort_by == 'total_con_iva' %}{{ '▼' if sort_dir == 'desc' else '▲' }}{% endif %}
+        </a>
+      </th>
+      <th scope="col">
+        <a href="{{ url_for('ventas_list', year=year, month=month, socio=selected_socio, estado=selected_estado, sort_by='estado', sort_dir=next_sort_dir if sort_by == 'estado' else 'asc') }}" class="text-decoration-none text-dark fw-bold">
+          Estado {% if sort_by == 'estado' %}{{ '▼' if sort_dir == 'desc' else '▲' }}{% endif %}
+        </a>
+      </th>
+      <th scope="col">Detalle</th>
     </tr>
   </thead>
   <tbody>

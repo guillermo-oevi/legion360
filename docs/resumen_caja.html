@@ -101,89 +101,92 @@
 
 {% for caja, movimientos in resumen.items() %}
   <div class="mt-4">
-    <h4 class="mb-2">Caja: {{ caja }}</h4>
-    
-    {# Muestra el total para la caja actual, obtenido del diccionario `totales`. El filtro `ars` formatea el número como moneda. #}
-    <div>
-      <strong>Total:</strong> 
-      <span class="badge bg-success text-white" style="font-size: 1rem;">{{ totales[caja]|ars }}</span>
+    <div class="d-flex justify-content-between align-items-center p-2 rounded" style="background-color: #f8f9fa;">
+      <h4 class="mb-0">Caja: {{ caja }}</h4>
+      <div>
+        <strong class="me-2">Total:</strong> 
+        <span class="badge bg-success text-white" style="font-size: 1rem;">{{ totales[caja]|ars }}</span>
+        <button class="btn btn-sm btn-outline-secondary ms-3" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-{{ loop.index }}" aria-expanded="false" aria-controls="collapse-{{ loop.index }}">
+          Ver/Ocultar Detalle
+        </button>
+      </div>
     </div>
     
     {# Tabla que lista los movimientos individuales de la caja. #}
-    <div class="table-responsive mt-2">
-      
-      <table class="table table-sm align-middle">
-        <thead>
-          <tr>
-            <th>Transacción</th>
-            <th>Fecha</th>
-            <th>Tipo</th>
-            <th>Detalle</th>
-            <th class="text-end">Monto</th>
-          
-          </tr>
-        </thead>
+    <div class="collapse" id="collapse-{{ loop.index }}">
+      <div class="table-responsive mt-2">
+        <table class="table table-sm align-middle">
+          <thead>
+            <tr>
+              <th>Transacción</th>
+              <th>Fecha</th>
+              <th>Tipo</th>
+              <th>Detalle</th>
+              <th class="text-end">Monto</th>
+            
+            </tr>
+          </thead>
 
-        <tbody>
-          {% set ns = namespace(subtotal=0, subtotal_venta=0, subtotal_compra=0, es_personal=false) %}
-          {% for m in movimientos %}
-              {#
+          <tbody>
+            {% set ns = namespace(subtotal=0, subtotal_venta=0, subtotal_compra=0, es_personal=false) %}
+            {% for m in movimientos %}
+                {#
                 Se aplica un color de fondo a toda la fila si el movimiento pertenece a una transacción.
                 - `m.color_index` se calcula en el backend (main.py) usando un hash del `transaccion_id`.
                 - Esto asegura que todos los movimientos de la misma transacción tengan el mismo color.
                 - `--bs-table-accent-bg` es una variable de Bootstrap 5 que sobreescribe el color de fondo de la fila.
               #}
               <tr {% if m.color_index is not none %}style="--bs-table-accent-bg: {{ colores[m.color_index] }};"{% endif %}>
-              <td>{{ m.transaccion_id or '' }}</td>
-              <td>{{ m.fecha.strftime('%d/%m/%Y') }}</td>
-              <td>{{ m.tipo }}</td> {# "COMPRA" o "VENTA" #}
-              <td>{{ m.detalle }}</td> {# Descripción de la compra/venta #}
-              <td class="text-end">{{ m.monto|ars }}</td>
-              </tr>
+                <td>{{ m.transaccion_id or '' }}</td>
+                <td>{{ m.fecha.strftime('%d/%m/%Y') }}</td>
+                <td>{{ m.tipo }}</td> {# "COMPRA" o "VENTA" #}
+                <td>{{ m.detalle }}</td> {# Descripción de la compra/venta #}
+                <td class="text-end">{{ m.monto|ars }}</td>
+                </tr>
 
-              {% if m.transaccion_id %}
-                  {# --- CÁLCULO DEL SUBTOTAL POR TRANSACCIÓN --- #}
-                  {# 1. Se acumula el 'monto' de cada movimiento (positivo para ventas, negativo para compras) en la variable `ns.subtotal`. #}
-                  {% set ns.subtotal = ns.subtotal + m.monto %}
-                  {% if m.tipo == 'VENTA' %}
-                      {% set ns.subtotal_venta = ns.subtotal_venta + m.monto %}
-                  {% elif m.tipo == 'COMPRA' %}
-                      {# 2. Para el cálculo de rentabilidad, se acumula el costo total (valor absoluto de las compras). #}
-                      {% set ns.subtotal_compra = ns.subtotal_compra + m.monto|abs %}
-                      {% if m.personal %}
-                          {% set ns.es_personal = true %}
-                      {% endif %}
-                  {% endif %}
-              {% endif %}
-
-              {# Si es el final de un grupo de transacciones, mostrar el subtotal #}
-              {% set next_m = movimientos[loop.index] if not loop.last else none %}
-              {% if m.transaccion_id and (loop.last or m.transaccion_id != (next_m.transaccion_id if next_m else none)) %}
-                  {% set rentabilidad = 0 %}
-                  {% if ns.subtotal_compra > 0 %}
-                      {# --- CÁLCULO DE RENTABILIDAD POR TRANSACCIÓN --- #}
-                      {# 1. Ganancia = Total Ingresos (ventas) - Total Costos (compras). #}
-                      {% set ganancia = ns.subtotal_venta - ns.subtotal_compra %}
-                      {# 2. Rentabilidad = (Ganancia / Costo Total) * 100. #}
-                      {% set rentabilidad = (ganancia / ns.subtotal_compra) * 100 %}
-                  {% endif %}
-                  <tr class="table-group-divider">
-                      <td colspan="4" class="text-end fw-bold">Subtotal Transacción:</td>
-                      <td class="text-end fw-bold">
-                        {{ ns.subtotal|ars }} {# Muestra el subtotal neto de la transacción. #}
-                        <span class="ms-2 fst-italic text-muted">[{{ rentabilidad|round(2) }}%]</span>
-                        {% if ns.es_personal %}
-                          <span class="badge bg-info text-dark ms-2">Compra Personal</span>
+                {% if m.transaccion_id %}
+                    {# --- CÁLCULO DEL SUBTOTAL POR TRANSACCIÓN --- #}
+                    {# 1. Se acumula el 'monto' de cada movimiento (positivo para ventas, negativo para compras) en la variable `ns.subtotal`. #}
+                    {% set ns.subtotal = ns.subtotal + m.monto %}
+                    {% if m.tipo == 'VENTA' %}
+                        {% set ns.subtotal_venta = ns.subtotal_venta + m.monto %}
+                    {% elif m.tipo == 'COMPRA' %}
+                        {# 2. Para el cálculo de rentabilidad, se acumula el costo total (valor absoluto de las compras). #}
+                        {% set ns.subtotal_compra = ns.subtotal_compra + m.monto|abs %}
+                        {% if m.personal %}
+                            {% set ns.es_personal = true %}
                         {% endif %}
-                      </td>
-                  </tr>
-                  {% set ns.subtotal, ns.subtotal_venta, ns.subtotal_compra, ns.es_personal = 0, 0, 0, false %}
-              {% endif %}
-          {% endfor %}
-        </tbody>
+                    {% endif %}
+                {% endif %}
 
-      </table>
-      
+                {# Si es el final de un grupo de transacciones, mostrar el subtotal #}
+                {% set next_m = movimientos[loop.index] if not loop.last else none %}
+                {% if m.transaccion_id and (loop.last or m.transaccion_id != (next_m.transaccion_id if next_m else none)) %}
+                    {% set rentabilidad = 0 %}
+                    {% if ns.subtotal_compra > 0 %}
+                        {# --- CÁLCULO DE RENTABILIDAD POR TRANSACCIÓN --- #}
+                        {# 1. Ganancia = Total Ingresos (ventas) - Total Costos (compras). #}
+                        {% set ganancia = ns.subtotal_venta - ns.subtotal_compra %}
+                        {# 2. Rentabilidad = (Ganancia / Costo Total) * 100. #}
+                        {% set rentabilidad = (ganancia / ns.subtotal_compra) * 100 %}
+                    {% endif %}
+                    <tr class="table-group-divider">
+                        <td colspan="4" class="text-end fw-bold">Subtotal Transacción:</td>
+                        <td class="text-end fw-bold">
+                          {{ ns.subtotal|ars }} {# Muestra el subtotal neto de la transacción. #}
+                          <span class="ms-2 fst-italic text-muted">[{{ rentabilidad|round(2) }}%]</span>
+                          {% if ns.es_personal %}
+                            <span class="badge bg-info text-dark ms-2">Compra Personal</span>
+                          {% endif %}
+                        </td>
+                    </tr>
+                    {% set ns.subtotal, ns.subtotal_venta, ns.subtotal_compra, ns.es_personal = 0, 0, 0, false %}
+                {% endif %}
+            {% endfor %}
+          </tbody>
+
+        </table>
+      </div>
     </div>
   </div>
   {#
